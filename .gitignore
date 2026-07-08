@@ -1,0 +1,80 @@
+# ------------------------------
+# OS generated files
+# ------------------------------
+.DS_Store
+Thumbs.db
+
+# ------------------------------
+# Logs
+# ------------------------------
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# ------------------------------
+# Dependency directories
+# ------------------------------
+node_modules/
+jspm_packages/
+
+# ------------------------------
+# Build outputs
+# ------------------------------
+dist/
+build/
+out/
+coverage/
+
+# ------------------------------
+# Environment variables
+# ------------------------------
+.env
+.env.*
+!.env.example
+
+# ------------------------------
+# Editor directories and files
+# ------------------------------
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# ------------------------------
+# Cache
+# ------------------------------
+.cache/
+.parcel-cache/
+.next/
+.nuxt/
+.svelte-kit/
+
+# ------------------------------
+# TypeScript
+# ------------------------------
+*.tsbuildinfo
+
+# ------------------------------
+# Python (if mixed project)
+# ------------------------------
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+venv/
+.venv/
+.env/
+
+# ------------------------------
+# Misc
+# ------------------------------
+*.tmp
+*.temp
+*.bak
+
+
+# Pipeline local runtime artifacts
+*.generate_to_cache/
+**/shared_state/

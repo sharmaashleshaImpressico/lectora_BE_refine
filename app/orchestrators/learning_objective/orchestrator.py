@@ -7,26 +7,26 @@ from typing import Any
 
 from semantic_kernel import Kernel
 
-from app.pipeline.agents.__lo1_learning_objective.Lo_generation.main import (
+from app.ai.agents.learning_objective_agent.Lo_generation.main import (
     LOGenerationAgent,
 )
-from app.pipeline.agents.__lo1_learning_objective.Lo_generation.models import (
+from app.ai.agents.learning_objective_agent.Lo_generation.models import (
     LOGenerationInput,
 )
-from app.pipeline.agents.__lo1_learning_objective.Lo_refine_agent.main import (
+from app.ai.agents.learning_objective_agent.Lo_refine_agent.main import (
     LORefinementAgent,
 )
-from app.pipeline.agents.__lo1_learning_objective.Lo_refine_agent.models import (
+from app.ai.agents.learning_objective_agent.Lo_refine_agent.models import (
     LORefinementInput,
 )
-from app.pipeline.agents.__lo1_learning_objective.Lo_validator.main import (
+from app.ai.agents.learning_objective_agent.Lo_validator.main import (
     LOValidatorAgent,
 )
-from app.pipeline.agents.__lo1_learning_objective.Lo_validator.models import (
+from app.ai.agents.learning_objective_agent.Lo_validator.models import (
     LOValidationInput,
     LOValidationIssue,
 )
-from app.pipeline.agents.__lo1_learning_objective.models import (
+from app.ai.agents.learning_objective_agent.models import (
     CourseMetadata,
     LOPipelineResult,
 )

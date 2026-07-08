@@ -7,26 +7,26 @@ from typing import Any
 
 from semantic_kernel import Kernel
 
-from app.pipeline.agents.required_topic.models import (
+from app.ai.agents.required_topic.models import (
     RTPipelineMetadata,
     RTPipelineResult,
 )
-from app.pipeline.agents.required_topic.rt_generation.main import (
+from app.ai.agents.required_topic.rt_generation.main import (
     RTGenerationAgent,
 )
-from app.pipeline.agents.required_topic.rt_generation.models import (
+from app.ai.agents.required_topic.rt_generation.models import (
     RTGenerationInput,
 )
-from app.pipeline.agents.required_topic.rt_refine_agent.main import (
+from app.ai.agents.required_topic.rt_refine_agent.main import (
     RTRefinementAgent,
 )
-from app.pipeline.agents.required_topic.rt_refine_agent.models import (
+from app.ai.agents.required_topic.rt_refine_agent.models import (
     RTRefinementInput,
 )
-from app.pipeline.agents.required_topic.rt_validator.main import (
+from app.ai.agents.required_topic.rt_validator.main import (
     RTValidatorAgent,
 )
-from app.pipeline.agents.required_topic.rt_validator.models import (
+from app.ai.agents.required_topic.rt_validator.models import (
     RTValidationInput,
     RTValidationIssue,
 )

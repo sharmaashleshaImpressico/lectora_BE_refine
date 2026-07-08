@@ -63,3 +63,24 @@ class AzureSQLSettings(BaseSettings):
 
 
 azure_settings = AzureSQLSettings()
+
+
+class LLMPipelineSettings(BaseSettings):
+    """Azure OpenAI + Langfuse settings for the content pipeline's shared LLM client."""
+
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
+    azure_openai_api_key: str | None = None
+    azure_openai_endpoint: str | None = None
+    azure_openai_api_version: str = "2024-12-01-preview"
+
+    langfuse_public_key: str | None = None
+    langfuse_secret_key: str | None = None
+    langfuse_host: str | None = None
+    langfuse_base_url: str | None = None
+    langfuse_project: str | None = None
+    langfuse_env: str | None = None
+    langfuse_api_key: str | None = None
+
+
+llm_pipeline_settings = LLMPipelineSettings()

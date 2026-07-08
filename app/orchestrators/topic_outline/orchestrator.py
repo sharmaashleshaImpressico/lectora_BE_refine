@@ -9,16 +9,16 @@ from typing import Any
 
 from semantic_kernel import Kernel
 
-from app.pipeline.agents.to_generation_pipeline.step_01_parse_and_generate_outline.phases.synthesizer import (
+from app.ai.agents.to_generation_pipeline.step_01_parse_and_generate_outline.phases.synthesizer import (
     A0RequestSynthesizer,
 )
-from app.pipeline.agents.to_generation_pipeline.step_02_validate_outline.orchestrator.validator import (
+from app.ai.agents.to_generation_pipeline.step_02_validate_outline.orchestrator.validator import (
     S1Validator,
 )
-from app.pipeline.agents.to_generation_pipeline.step_03_repair_outline.agent import (
+from app.ai.agents.to_generation_pipeline.step_03_repair_outline.agent import (
     S1ValidatorRefineAgent,
 )
-from app.pipeline.agents.to_generation_pipeline.step_03_repair_outline.models import (
+from app.ai.agents.to_generation_pipeline.step_03_repair_outline.models import (
     S1RefinementInput,
     S1RefinementIssue,
 )

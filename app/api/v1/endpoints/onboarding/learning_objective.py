@@ -20,8 +20,8 @@ from app.services.onboarding.learning_objective.learning_objective_service impor
 
 logger = logging.getLogger(__name__)
 
-# Frontend contract paths under /api/documents
-router = APIRouter(prefix="/api/documents", tags=["Learning Objective"])
+# Backend paths: /documents/... (Vite proxy strips /api from FE /api/documents/...)
+router = APIRouter(prefix="/documents", tags=["Learning Objective"])
 
 
 @router.post(

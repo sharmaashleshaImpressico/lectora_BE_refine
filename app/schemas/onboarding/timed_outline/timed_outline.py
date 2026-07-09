@@ -58,3 +58,22 @@ class RegenerateTimedOutlineResponse(BaseModel):
     """Revised timed outline result."""
 
     to: dict[str, Any]
+
+
+class SuggestOutlineStructureRequest(BaseModel):
+    """Payload accepted from the frontend for outline structure suggestions."""
+
+    courseTitle: str | None = None
+    courseDescription: str | None = None
+    courseType: str | None = None
+    targetAudience: str | None = None
+    skillLevel: str | None = None
+    learningObjectives: list[str] | None = None
+
+
+class SuggestOutlineStructureResponse(BaseModel):
+    """Suggested chapter count and lesson style with rationale."""
+
+    preferredChapters: int
+    lessonStyle: str
+    reasoning: str

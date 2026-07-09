@@ -13,6 +13,8 @@ from app.schemas.onboarding.timed_outline.timed_outline import (
     GenerateTimedOutlineResponse,
     RegenerateTimedOutlineRequest,
     RegenerateTimedOutlineResponse,
+    SuggestOutlineStructureRequest,
+    SuggestOutlineStructureResponse,
 )
 from app.services.onboarding.timed_outline.timed_outline_service import (
     TimedOutlineService,
@@ -73,4 +75,25 @@ def regenerate_timed_outline(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Could not regenerate timed outline. Please try again.",
+        )
+
+
+@router.post(
+    "/suggest-outline-structure",
+    response_model=SuggestOutlineStructureResponse,
+    status_code=status.HTTP_200_OK,
+)
+def suggest_outline_structure(
+    payload: SuggestOutlineStructureRequest,
+    kernel: Kernel = Depends(get_kernel),
+) -> SuggestOutlineStructureResponse:
+    """Suggest a preferred chapter count and lesson style for a course."""
+    try:
+        service = TimedOutlineService(kernel)
+        return service.suggest_outline_structure(payload)
+    except Exception:
+        logger.exception("Failed to suggest outline structure")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Could not suggest outline structure. Please try again.",
         )

@@ -1,0 +1,77 @@
+---
+description: Layer contract naming for API schemas and service-orchestrator models
+globs:
+  - "lectora_BE_refine/app/schemas/**/*.py"
+  - "lectora_BE_refine/app/services/**/*.py"
+  - "lectora_BE_refine/app/orchestrators/**/*.py"
+alwaysApply: true
+---
+
+# Layer Contract Naming Convention
+
+All backend features must use clear, action-specific names for contracts between layers.
+
+## 1. API Request/Response Schemas
+
+**Location:** `app/schemas/...`
+
+**Purpose:** External HTTP contract between frontend and backend.
+
+**Naming:**
+- `{Action}{Feature}Request`
+- `{Action}{Feature}Response`
+
+**Examples:**
+- `GenerateLearningObjectivesRequest` / `GenerateLearningObjectivesResponse`
+- `RegenerateLearningObjectivesRequest` / `RegenerateLearningObjectivesResponse`
+- `GenerateTimedOutlineRequest` / `GenerateTimedOutlineResponse`
+
+**Rules:**
+- Use frontend-facing field names (usually camelCase).
+- Used by endpoints only as the outer API DTO.
+- Must not be passed directly into agents or orchestrators.
+- Services accept these schemas and map them into orchestrator input models.
+
+## 2. Service-to-Orchestrator Contracts
+
+**Location:** `app/orchestrators/{feature}/models.py`
+
+**Purpose:** Internal contract between the service layer and the feature orchestrator.
+
+**Naming:**
+- `{Feature}{Action}Input`
+- `{Feature}{Action}Result`
+
+**Examples:**
+- `LearningObjectiveGenerationInput` / `LearningObjectiveGenerationResult`
+- `LearningObjectiveRegenerationInput` / `LearningObjectiveRegenerationResult`
+- `TimedOutlineGenerationInput` / `TimedOutlineGenerationResult`
+
+**Rules:**
+- Internal application contracts only — no HTTP-specific concerns.
+- Do not use frontend camelCase field names unless intentionally mapped.
+- Services convert API request schemas into these input models.
+- Orchestrators return result models to services.
+- Keep models in `models.py`, separate from `orchestrator.py`.
+
+## Avoid Generic Names
+
+Do not use vague names such as:
+- `LearningObjectiveInput` / `LearningObjectiveOutput`
+- `TimedOutlineMetadata`
+- `PipelineResult`
+
+Prefer action-specific names:
+- `LearningObjectiveGenerationInput`
+- `LearningObjectiveRegenerationInput`
+- `TimedOutlineGenerationInput`
+- `LearningObjectiveGenerationResult`
+- `TimedOutlineGenerationResult`
+
+## Layer Mapping
+
+```text
+API Schema (Request)  →  Service maps to  →  {Feature}{Action}Input
+Orchestrator returns  →  {Feature}{Action}Result  →  Service maps to  →  API Schema (Response)
+Orchestrator maps     →  Agent input models (agent layer only)
+```

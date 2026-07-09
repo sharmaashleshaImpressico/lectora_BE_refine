@@ -12,10 +12,16 @@ from __future__ import annotations
 from fastapi import APIRouter
 
 from app.api.v1.endpoints import health
-from app.api.v1.endpoints.onboarding import course_basic, course_run, learning_objective
+from app.api.v1.endpoints.onboarding import (
+    course_basic,
+    course_run,
+    learning_objective,
+    timed_outline,
+)
 
 api_router = APIRouter()
 api_router.include_router(course_basic.router)
 api_router.include_router(course_run.router)
 api_router.include_router(health.router)
 api_router.include_router(learning_objective.router)
+api_router.include_router(timed_outline.router)

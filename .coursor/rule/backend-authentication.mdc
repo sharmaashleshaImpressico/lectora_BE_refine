@@ -1,0 +1,167 @@
+---
+
+description: Backend authentication standard for protected FastAPI APIs
+globs:
+
+* "app/api/**/*.py"
+* "app/core/auth/**/*.py"
+* "app/services/**/*.py"
+  alwaysApply: true
+
+---
+
+# Backend Authentication Standard
+
+Protected backend APIs must validate the Microsoft Entra/MSAL bearer token before executing business logic.
+
+Frontend sends:
+
+```text
+Authorization: Bearer <access_token>
+```
+
+## Approved Flow
+
+Authentication runs before the normal business flow.
+
+```text
+Request
+↓
+Token validation
+↓
+Endpoint
+↓
+Service
+↓
+Orchestrator / DB / External Services
+```
+
+Normal feature flow remains:
+
+```text
+Endpoint → Service → Orchestrator → Agents/Repositories
+```
+
+Authentication must not be handled inside agents or orchestrators.
+
+## Auth Module Location
+
+Authentication code should live under:
+
+```text
+app/core/auth/
+```
+
+Recommended files:
+
+```text
+app/core/auth/config.py
+app/core/auth/token_validator.py
+app/core/auth/dependencies.py
+```
+
+## Responsibilities
+
+### token_validator.py
+
+Responsible for validating Microsoft access tokens.
+
+It should check:
+
+* Bearer token format
+* JWT signature
+* Expiry
+* Issuer
+* Audience
+* Microsoft JWKS/signing keys
+
+It should return validated claims for future use.
+
+It must not:
+
+* Log full tokens
+* Expose raw token errors to frontend
+* Handle created_by / modified_by logic
+* Handle endpoint business logic
+
+### dependencies.py
+
+Responsible for FastAPI dependencies such as:
+
+```python
+require_valid_token
+```
+
+This dependency should:
+
+* Read Authorization header
+* Validate token
+* Return validated claims
+* Raise 401 for missing/invalid/expired/wrong-audience token
+
+## Applying Auth
+
+Protected business endpoints should use:
+
+```python
+Depends(require_valid_token)
+```
+
+Protect APIs such as:
+
+```text
+/documents/generate-learning-objectives
+/documents/regenerate-learning-objectives
+/documents/generate-to
+/course-basic
+```
+
+Do not protect:
+
+```text
+/health
+```
+
+Docs/OpenAPI may remain public in local/dev, but should be reviewed before production.
+
+## Current Scope
+
+For the first auth task, only implement token validation.
+
+Do not implement yet:
+
+* User extraction
+* created_by / modified_by
+* Role-based authorization
+* Permission checks
+* Tenant isolation
+
+Those will be separate steps.
+
+## Endpoint Rule
+
+New protected endpoints must include authentication unless they are explicitly public.
+
+Endpoint should not:
+
+* Decode tokens manually
+* Validate JWT directly
+* Read user identity manually
+* Implement auth logic inline
+
+Endpoint should call the auth dependency only.
+
+## Service Rule
+
+Service should not validate tokens.
+
+In the future, service may receive authenticated user context for audit fields, but token validation must stay in `app/core/auth`.
+
+## Acceptance Criteria for Protected APIs
+
+* Missing token returns 401
+* Invalid token returns 401
+* Expired token returns 401
+* Wrong audience returns 401
+* Valid token allows endpoint execution
+* `/health` remains public

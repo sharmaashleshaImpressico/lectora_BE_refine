@@ -26,7 +26,7 @@ router = APIRouter(
 
 
 @router.post(
-    "/required-topics",
+    "/generate-recommended-topics",
     response_model=GenerateRequiredTopicsResponse,
     status_code=status.HTTP_200_OK,
 )

@@ -11,13 +11,12 @@ class GenerateRequiredTopicsRequest(BaseModel):
     """Payload accepted from the frontend for required topics generation."""
 
     courseTitle: str = Field(..., min_length=1)
-    courseScope: str = Field(..., min_length=1)
-    difficultyLevel: str = Field(..., min_length=1)
+    courseDescription: str = Field(..., min_length=1)
+    courseType: str = Field(..., min_length=1)
+    courseDuration: str = Field(..., min_length=1)
+    skillLevel: str = Field(..., min_length=1)
     targetAudience: str = Field(..., min_length=1)
-    learnerExperienceLevel: str = Field(..., min_length=1)
-    learnerOutcomes: list[str] = Field(..., min_length=1)
-    courseType: str | None = None
-    courseDuration: str | None = None
+    learnerOutcomes: str = Field(..., min_length=1)
 
 
 class GenerateRequiredTopicsResponse(BaseModel):

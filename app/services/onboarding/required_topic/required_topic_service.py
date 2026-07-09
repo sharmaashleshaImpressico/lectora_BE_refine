@@ -39,11 +39,11 @@ class RequiredTopicService:
         """Convert the frontend payload into orchestrator input."""
         return RequiredTopicsGenerationInput(
             course_title=request.courseTitle,
-            course_scope=request.courseScope,
-            course_type=request.courseType or "",
-            course_duration=request.courseDuration or "",
-            difficulty_level=request.difficultyLevel,
+            course_scope=request.courseDescription,
+            course_type=request.courseType,
+            course_duration=request.courseDuration,
+            difficulty_level=request.skillLevel,
             target_audience=request.targetAudience,
-            learner_experience_level=request.learnerExperienceLevel,
-            learner_outcomes=list(request.learnerOutcomes),
+            learner_experience_level=request.skillLevel,
+            learner_outcomes=[request.learnerOutcomes],
         )

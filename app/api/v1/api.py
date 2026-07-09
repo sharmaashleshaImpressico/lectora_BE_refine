@@ -2,8 +2,9 @@
 
 No prefix is applied here so existing route paths (`/course-basic`,
 `/health`) are unchanged — this only groups the routers for `app.main`.
-Onboarding generation routes (e.g. `/api/documents/generate-learning-objectives`)
-carry their own prefix on the feature router.
+Onboarding document routes (e.g. `/documents/generate-learning-objectives`) carry
+their own prefix on the feature router. The frontend calls `/api/documents/...`
+via Vite, which proxies to these backend paths.
 """
 
 from __future__ import annotations

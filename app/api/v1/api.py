@@ -16,6 +16,7 @@ from app.api.v1.endpoints.onboarding import (
     course_basic,
     course_run,
     learning_objective,
+    required_topic,
     timed_outline,
 )
 
@@ -24,4 +25,5 @@ api_router.include_router(course_basic.router)
 api_router.include_router(course_run.router)
 api_router.include_router(health.router)
 api_router.include_router(learning_objective.router)
+api_router.include_router(required_topic.router)
 api_router.include_router(timed_outline.router)

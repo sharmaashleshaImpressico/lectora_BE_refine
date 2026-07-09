@@ -7,10 +7,7 @@ from typing import Any
 
 from semantic_kernel import Kernel
 
-from app.ai.agents.required_topic.models import (
-    RTPipelineMetadata,
-    RTPipelineResult,
-)
+from app.ai.agents.required_topic.models import RTPipelineMetadata
 from app.ai.agents.required_topic.rt_generation.main import (
     RTGenerationAgent,
 )
@@ -30,6 +27,10 @@ from app.ai.agents.required_topic.rt_validator.models import (
     RTValidationInput,
     RTValidationIssue,
 )
+from app.orchestrators.required_topics.models import (
+    RequiredTopicsGenerationInput,
+    RequiredTopicsGenerationResult,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +49,35 @@ def _issues_as_dicts(
         }
         for issue in issues
     ]
+
+
+def _format_learner_outcomes(
+    *,
+    experience_level: str,
+    outcomes: list[str],
+) -> str:
+    lines = [f"Learner experience level: {experience_level.strip()}"]
+    if outcomes:
+        lines.append("Desired outcomes:")
+        lines.extend(f"- {outcome.strip()}" for outcome in outcomes if outcome.strip())
+    return "\n".join(lines)
+
+
+def _to_pipeline_metadata(
+    input_data: RequiredTopicsGenerationInput,
+) -> RTPipelineMetadata:
+    return RTPipelineMetadata(
+        course_title=input_data.course_title,
+        course_description=input_data.course_scope,
+        course_type=input_data.course_type,
+        course_duration=input_data.course_duration,
+        target_audience=input_data.target_audience,
+        skill_level=input_data.difficulty_level,
+        learner_outcomes=_format_learner_outcomes(
+            experience_level=input_data.learner_experience_level,
+            outcomes=input_data.learner_outcomes,
+        ),
+    )
 
 
 class RequiredTopicsOrchestrator:
@@ -80,8 +110,9 @@ class RequiredTopicsOrchestrator:
 
     async def execute(
         self,
-        metadata: RTPipelineMetadata,
-    ) -> RTPipelineResult:
+        input_data: RequiredTopicsGenerationInput,
+    ) -> RequiredTopicsGenerationResult:
+        metadata = _to_pipeline_metadata(input_data)
         logger.info(
             "[required_topics] Starting | title=%r",
             metadata.course_title,
@@ -97,7 +128,7 @@ class RequiredTopicsOrchestrator:
             logger.warning(
                 "[required_topics] Generation returned empty topics"
             )
-            return RTPipelineResult(
+            return RequiredTopicsGenerationResult(
                 topics=[],
                 validation_passed=False,
                 repair_attempts=0,
@@ -112,7 +143,7 @@ class RequiredTopicsOrchestrator:
         )
 
         if validation.passed:
-            return RTPipelineResult(
+            return RequiredTopicsGenerationResult(
                 topics=current_topics,
                 validation_passed=True,
                 repair_attempts=0,
@@ -159,13 +190,13 @@ class RequiredTopicsOrchestrator:
             current_issues = validation.issues
 
             if validation.passed:
-                return RTPipelineResult(
+                return RequiredTopicsGenerationResult(
                     topics=current_topics,
                     validation_passed=True,
                     repair_attempts=attempt,
                 )
 
-        return RTPipelineResult(
+        return RequiredTopicsGenerationResult(
             topics=current_topics,
             validation_passed=False,
             repair_attempts=_MAX_REPAIR_ATTEMPTS,

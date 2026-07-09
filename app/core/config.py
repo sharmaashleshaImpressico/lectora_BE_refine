@@ -84,3 +84,45 @@ class LLMPipelineSettings(BaseSettings):
 
 
 llm_pipeline_settings = LLMPipelineSettings()
+
+
+class AzureStorageSettings(BaseSettings):
+    """Azure Blob Storage settings for document uploads and pipeline artifacts."""
+
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
+    azure_storage_connection_string: str | None = None
+    blob_container_name: str = "uploaded-documents"
+    # Dedicated container for FE-uploaded source documents (Documents library).
+    # Kept separate from `blob_container_name`, which `.env` may point at a
+    # different container used for shared-state / pipeline artifacts.
+    uploaded_documents_container_name: str = "uploaded-documents"
+    shared_state_backend: str = "auto"
+    course_generation_artifacts_container_name: str = "course-generation-artifacts"
+    local_upload_root: str = "data/uploads"
+
+    @property
+    def is_configured(self) -> bool:
+        return bool(
+            self.azure_storage_connection_string
+            and self.uploaded_documents_container_name.strip()
+        )
+
+
+class IngestionSettings(BaseSettings):
+    """Azure AI Search + embeddings settings for the document ingestion pipeline."""
+
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
+    azure_search_endpoint: str | None = None
+    azure_search_api_key: str | None = None
+    azure_search_index_name: str = "course-chunks"
+    azure_openai_embeddings_resource_name: str | None = None
+    azure_openai_embeddings_key: str | None = None
+    ingestion_embedding_deployment: str = "text-embedding-3-large"
+    ingestion_max_chunk_tokens: int = 1500
+    ingestion_min_chunk_tokens: int = 80
+
+
+azure_storage_settings = AzureStorageSettings()
+ingestion_settings = IngestionSettings()

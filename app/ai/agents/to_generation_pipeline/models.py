@@ -130,6 +130,7 @@ class A0Result(BaseModel):
     request_spec: RequestSpec
     provenance_log: dict[str, ProvenanceEntry] = Field(default_factory=dict)
     shared_state_path: str
+    shared_state: dict[str, Any] = Field(default_factory=dict)
     output_files: A0OutputFiles
     llm_to_outline: dict[str, Any] = Field(default_factory=dict)
 

@@ -23,6 +23,7 @@ from typing import Callable, Optional, TYPE_CHECKING
 
 from semantic_kernel import Kernel
 
+from app.core.storage.blob_file_resolver import resolve_source_path
 from ..shared.constants.difficulty import (
     DEFAULT_TO_DURATION_HOURS,
     compute_calculated_word_count,
@@ -87,24 +88,45 @@ class A0RequestSynthesizer:
         wizard_prompt_context: Optional["ToWizardPromptContext"] = None,
     ):
         self.kernel = kernel
-        paths: list[str] = [str(path) for path in (docx_paths or []) if path]
-        pdfs: list[str] = [str(path) for path in (pdf_paths or []) if path]
-        if not paths and docx_path:
-            paths = [str(docx_path)]
-            paths.extend(str(path) for path in (extra_docx_paths or []) if path)
-        if not paths and not pdfs:
+        raw_docx_paths: list[str] = [str(path) for path in (docx_paths or []) if path]
+        raw_pdf_paths: list[str] = [str(path) for path in (pdf_paths or []) if path]
+        if not raw_docx_paths and docx_path:
+            raw_docx_paths = [str(docx_path)]
+            raw_docx_paths.extend(str(path) for path in (extra_docx_paths or []) if path)
+        if not raw_docx_paths and not raw_pdf_paths:
             raise ValueError("At least one docx or pdf path is required")
+
+        # `raw_docx_paths`/`raw_pdf_paths` are Azure blob paths (or, for local dev
+        # without Azure configured, references into the local upload fallback
+        # root) — not local filesystem paths. Resolve each to a real local file
+        # (downloading from Azure Blob Storage as needed) here, once, so every
+        # downstream consumer of `self.docx_paths`/`self.pdf_paths`/
+        # `self.to_outline_doc_path` (ParsePhase, CourseDocParser, PDFSourceParser,
+        # DocumentTitleCollector, TOGenerationPhase's `open(...)` for JSON TOs)
+        # always sees an absolute local path.
+        paths = [resolve_source_path(path) for path in raw_docx_paths]
+        pdfs = [resolve_source_path(path) for path in raw_pdf_paths]
 
         self.docx_paths = paths
         self.pdf_paths = pdfs
         self.docx_path = paths[0] if paths else pdfs[0]
 
-        resolved_to_outline = (to_outline_doc_path or "").strip() or None
-        if not resolved_to_outline and use_static_prompt:
-            if len(paths) == 1 and not pdfs:
-                resolved_to_outline = paths[0]
-            elif len(pdfs) == 1 and not paths:
-                resolved_to_outline = pdfs[0]
+        raw_to_outline = (to_outline_doc_path or "").strip() or None
+        if not raw_to_outline and use_static_prompt:
+            if len(raw_docx_paths) == 1 and not raw_pdf_paths:
+                raw_to_outline = raw_docx_paths[0]
+            elif len(raw_pdf_paths) == 1 and not raw_docx_paths:
+                raw_to_outline = raw_pdf_paths[0]
+
+        resolved_to_outline: str | None = None
+        if raw_to_outline:
+            if raw_to_outline in raw_docx_paths:
+                # Already resolved above — reuse it instead of downloading twice.
+                resolved_to_outline = paths[raw_docx_paths.index(raw_to_outline)]
+            elif raw_to_outline in raw_pdf_paths:
+                resolved_to_outline = pdfs[raw_pdf_paths.index(raw_to_outline)]
+            else:
+                resolved_to_outline = resolve_source_path(raw_to_outline)
 
         self.to_outline_doc_path = resolved_to_outline
         self.output_dir = Path(output_dir)

@@ -43,3 +43,37 @@ class GenerateTimedOutlineResponse(BaseModel):
     validationPassed: bool
     repairAttempts: int
     finalIssues: list[dict[str, Any]]
+
+
+class RegenerateTimedOutlineRequest(BaseModel):
+    """Payload accepted from the frontend for revising an existing TO in place."""
+
+    currentTo: dict[str, Any] = Field(..., description="Existing Training Outline JSON to revise")
+    regenerationPrompt: str = Field(..., min_length=1)
+    preferredChapters: int | None = None
+    lessonStyle: str | None = None
+
+
+class RegenerateTimedOutlineResponse(BaseModel):
+    """Revised timed outline result."""
+
+    to: dict[str, Any]
+
+
+class SuggestOutlineStructureRequest(BaseModel):
+    """Payload accepted from the frontend for outline structure suggestions."""
+
+    courseTitle: str | None = None
+    courseDescription: str | None = None
+    courseType: str | None = None
+    targetAudience: str | None = None
+    skillLevel: str | None = None
+    learningObjectives: list[str] | None = None
+
+
+class SuggestOutlineStructureResponse(BaseModel):
+    """Suggested chapter count and lesson style with rationale."""
+
+    preferredChapters: int
+    lessonStyle: str
+    reasoning: str

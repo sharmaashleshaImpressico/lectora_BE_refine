@@ -347,6 +347,7 @@ class FinalizationPhase:
             request_spec=request_spec,
             provenance_log=provenance_log,
             shared_state_path=str(state_path),
+            shared_state=shared_state.model_dump(mode="json"),
             output_files=A0OutputFiles(
                 request_spec=str(spec_path),
                 provenance_log=str(prov_path),

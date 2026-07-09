@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from semantic_kernel import Kernel
 
 from app.api.deps import get_kernel
+from app.core.auth.dependencies import require_valid_token
 from app.schemas.onboarding.learning_objective.learning_objective import (
     GenerateLearningObjectivesRequest,
     GenerateLearningObjectivesResponse,
@@ -21,7 +22,11 @@ from app.services.onboarding.learning_objective.learning_objective_service impor
 logger = logging.getLogger(__name__)
 
 # Backend paths: /documents/... (Vite proxy strips /api from FE /api/documents/...)
-router = APIRouter(prefix="/documents", tags=["Learning Objective"])
+router = APIRouter(
+    prefix="/documents",
+    tags=["Learning Objective"],
+    dependencies=[Depends(require_valid_token)],
+)
 
 
 @router.post(

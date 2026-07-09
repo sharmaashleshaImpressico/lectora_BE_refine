@@ -25,8 +25,8 @@ from app.ai.agents.to_generation_pipeline.step_03_repair_outline.models import (
     S1RefinementIssue,
 )
 from app.orchestrators.topic_outline.models import (
-    TimedOutlineMetadata,
-    TopicOutlineResult,
+    TimedOutlineGenerationInput,
+    TimedOutlineGenerationResult,
 )
 
 logger = logging.getLogger(__name__)
@@ -60,7 +60,7 @@ def _split_blob_paths(blob_paths: list[str]) -> tuple[list[str], list[str]]:
     return docx_paths, pdf_paths
 
 
-def _build_wizard_prompt_context(metadata: TimedOutlineMetadata) -> ToWizardPromptContext:
+def _build_wizard_prompt_context(metadata: TimedOutlineGenerationInput) -> ToWizardPromptContext:
     return ToWizardPromptContext(
         experience_level=metadata.experience_level,
         learner_outcomes=metadata.learner_outcomes,
@@ -78,7 +78,7 @@ def _build_wizard_prompt_context(metadata: TimedOutlineMetadata) -> ToWizardProm
     )
 
 
-def _build_validation_hints(metadata: TimedOutlineMetadata) -> str | None:
+def _build_validation_hints(metadata: TimedOutlineGenerationInput) -> str | None:
     topic = (metadata.course_topic or "").strip()
     return f"Course topic: {topic}" if topic else None
 
@@ -122,8 +122,8 @@ class TopicOutlineOrchestrator:
 
     def generate_timed_outline(
         self,
-        metadata: TimedOutlineMetadata,
-    ) -> TopicOutlineResult:
+        metadata: TimedOutlineGenerationInput,
+    ) -> TimedOutlineGenerationResult:
         """Entry point for POST /documents/generate-to."""
         docx_paths, pdf_paths = _split_blob_paths(metadata.blob_paths)
         return self.execute(
@@ -164,7 +164,7 @@ class TopicOutlineOrchestrator:
         wizard_learning_objectives: list[str] | None = None,
         preferred_chapters: int | None = None,
         wizard_prompt_context: ToWizardPromptContext | None = None,
-    ) -> TopicOutlineResult:
+    ) -> TimedOutlineGenerationResult:
         logger.info(
             "[topic_outline] Starting | difficulty=%r | has_to=%s",
             course_difficulty,
@@ -210,7 +210,7 @@ class TopicOutlineOrchestrator:
         validation = validator_agent.run()
 
         if validation.status in _PASSING_STATUSES:
-            return TopicOutlineResult(
+            return TimedOutlineGenerationResult(
                 outline=current_outline,
                 validation_passed=True,
                 repair_attempts=0,
@@ -251,14 +251,14 @@ class TopicOutlineOrchestrator:
             current_issues = validation.issues
 
             if validation.status in _PASSING_STATUSES:
-                return TopicOutlineResult(
+                return TimedOutlineGenerationResult(
                     outline=current_outline,
                     validation_passed=True,
                     repair_attempts=attempt,
                     blocked=False,
                 )
 
-        return TopicOutlineResult(
+        return TimedOutlineGenerationResult(
             outline=current_outline,
             validation_passed=False,
             repair_attempts=_MAX_REPAIR_ATTEMPTS,

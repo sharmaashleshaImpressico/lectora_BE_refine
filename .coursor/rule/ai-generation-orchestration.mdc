@@ -1,0 +1,278 @@
+---
+
+description: Standard orchestration pattern for AI generation APIs
+globs:
+
+* "app/orchestrators/**/*.py"
+* "app/agents/**/*.py"
+* "app/services/**/*.py"
+* "app/schemas/**/*.py"
+  alwaysApply: true
+
+---
+
+# AI Generation Orchestration Standard
+
+All AI generation APIs must use the feature orchestrator pattern.
+
+Do not use a separate central pipeline, hidden pipeline entrypoint, or agent registry unless explicitly requested.
+
+## Approved Request Flow
+
+The request should move inward in this order:
+
+```text
+Endpoint → Service → Feature Orchestrator → Agents
+```
+
+Meaning:
+
+1. Endpoint receives the HTTP request.
+2. Endpoint calls the service.
+3. Service prepares internal input and calls the feature orchestrator.
+4. Feature orchestrator coordinates the agents.
+5. Agents perform individual LLM tasks.
+
+## Approved Response Flow
+
+The result should come back outward in this order:
+
+```text
+Agents → Feature Orchestrator → Service → Endpoint → Frontend
+```
+
+Meaning:
+
+1. Agent returns structured output to the orchestrator.
+2. Orchestrator combines/validates/repairs and returns final structured result to service.
+3. Service converts orchestrator result into API response schema.
+4. Endpoint returns HTTP response to frontend.
+
+## Layer Responsibilities
+
+### Endpoint
+
+Endpoint responsibilities:
+
+* Receive HTTP request.
+* Validate payload using Pydantic schema.
+* Call service method.
+* Return API response schema.
+
+Endpoint must not:
+
+* Call agents directly.
+* Call orchestrator directly unless this project explicitly allows skipping service.
+* Contain generation, validation, or repair logic.
+* Build LLM prompts.
+* Access database directly.
+
+### Service
+
+Service responsibilities:
+
+* Represent the application use case.
+* Convert API request schema into internal orchestrator input.
+* Call exactly one feature orchestrator method for the requested action.
+* Convert orchestrator result into API response schema.
+
+Service must not:
+
+* Call agents directly.
+* Contain generate/validate/refine loops.
+* Build LLM prompts.
+* Return raw LLM output.
+
+### Feature Orchestrator
+
+Feature orchestrator responsibilities:
+
+* Act as mediator between the outer application layer and agents.
+* Own the AI workflow.
+* Call the correct agents in the correct order.
+* Track validation status and repair attempts.
+* Return final structured result to the service.
+
+Feature orchestrator must not:
+
+* Import FastAPI endpoint classes.
+* Depend directly on frontend request payload.
+* Return raw LLM response text.
+* Expose internal agent exceptions directly to the API layer.
+
+### Agents
+
+Agent responsibilities:
+
+* Perform one specific LLM task.
+* Accept structured input.
+* Return structured output.
+
+Agent must not:
+
+* Know about FastAPI, endpoint, service, or frontend.
+* Access HTTP request/response objects.
+* Coordinate other agents.
+* Own repair-loop decisions.
+
+## Standard Generation Flow
+
+For generated course artifacts such as Learning Objectives, Required Topics, Timed Outline, or Study Guide sections, use this flow inside the feature orchestrator:
+
+```text
+Generate
+↓
+Validate
+↓
+If validation passes, return immediately
+↓
+If validation fails, repair/refine using validation issues
+↓
+Validate again
+↓
+Repeat repair at most 2 times
+↓
+Return final result
+```
+
+## Repair Loop Rules
+
+* Maximum repair attempts: 2
+* `repairAttempts = 0` when the first generated output passes validation.
+* `repairAttempts = 1` when one repair was performed.
+* `repairAttempts = 2` when two repairs were performed.
+* Stop immediately when validation passes.
+* If validation never passes, return the latest output with `validationPassed = false`.
+* Always return unresolved validation issues in `finalIssues`.
+
+## Learning Objective Generation Standard
+
+For Learning Objective generation, the approved flow is:
+
+```text
+Endpoint
+↓
+LearningObjectiveService
+↓
+LearningObjectiveOrchestrator.generate_learning_objectives()
+↓
+LOGenerationAgent
+↓
+LOValidatorAgent
+↓
+LORefinementAgent if needed
+↓
+LearningObjectiveOrchestrator
+↓
+LearningObjectiveService
+↓
+Endpoint response
+```
+
+The API response must include:
+
+```python
+learningObjectives: list[str]
+validationPassed: bool
+repairAttempts: int
+finalIssues: list[dict]
+```
+
+## Regeneration / User Prompt Refinement
+
+Regeneration or user-prompt-based refinement is a separate API and must not be mixed into the generation endpoint.
+
+Generation API may optionally accept extra frontend fields for compatibility, such as:
+
+```json
+{
+  "regenerationPrompt": "...",
+  "currentObjectives": []
+}
+```
+
+But the generation flow must ignore these fields.
+
+A future regenerate/refine API should have its own service method and orchestrator method, for example:
+
+```python
+LearningObjectiveService.refine_with_prompt()
+LearningObjectiveOrchestrator.refine_with_prompt()
+```
+
+## Layer Contract Naming
+
+Follow `.coursor/rule/layer-contract-naming.mdc`.
+
+Service-orchestrator contracts (in `app/orchestrators/{feature}/models.py`):
+
+```python
+LearningObjectiveGenerationInput
+LearningObjectiveGenerationResult
+LearningObjectiveRegenerationInput
+LearningObjectiveRegenerationResult
+TimedOutlineGenerationInput
+TimedOutlineGenerationResult
+```
+
+Agent-layer models (in `app/agents/...`) are separate and owned by each agent:
+
+```python
+LOGenerationInput
+LOValidationInput
+LORefinementInput
+```
+
+The orchestrator maps `{Feature}{Action}Input` → agent models. Services must never import agent models.
+
+Agents must not import:
+
+* FastAPI route modules
+* Endpoint request/response schemas
+* HTTP exceptions
+* Database session dependencies
+
+## Error Handling
+
+For AI generation APIs:
+
+* Handle known request validation errors with 422.
+* Handle expected orchestration failures with the project-standard error response.
+* Log internal exception details.
+* Do not leak secrets, prompts, credentials, raw stack traces, or full LLM payloads in API responses.
+
+## Async / Sync Rule
+
+Do not mix async and sync incorrectly.
+
+Allowed:
+
+* Async endpoint calls async service.
+* Async service awaits async orchestrator.
+* Async orchestrator awaits async agent methods.
+
+If agent methods are sync and perform blocking LLM calls, either:
+
+* Make them async, or
+* Run them safely using a thread wrapper.
+
+Do not write:
+
+```python
+await some_sync_function()
+```
+
+## Implementation Checklist
+
+Before finishing any generation endpoint, verify:
+
+* Endpoint calls service only.
+* Service calls orchestrator only.
+* Orchestrator calls agents.
+* Agents do not know about FastAPI.
+* Repair loop is inside orchestrator only.
+* Repair loop stops immediately on validation pass.
+* Repair loop never exceeds 2 attempts.
+* Response shape matches the frontend contract.
+* No regenerate/refine API is added unless explicitly requested.
+* No unrelated refactor is introduced.

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from semantic_kernel import Kernel
 
-from app.orchestrators.topic_outline.models import TimedOutlineMetadata
+from app.orchestrators.topic_outline.models import TimedOutlineGenerationInput
 from app.orchestrators.topic_outline.orchestrator import TopicOutlineOrchestrator
 from app.schemas.onboarding.timed_outline.timed_outline import (
     GenerateTimedOutlineRequest,
@@ -23,8 +23,8 @@ class TimedOutlineService:
         request: GenerateTimedOutlineRequest,
     ) -> GenerateTimedOutlineResponse:
         """Run generation, validation, and repair via the feature orchestrator."""
-        metadata = self._to_timed_outline_metadata(request)
-        result = self._orchestrator.generate_timed_outline(metadata)
+        input_data = self._to_generation_input(request)
+        result = self._orchestrator.generate_timed_outline(input_data)
         return GenerateTimedOutlineResponse(
             timedOutline=result.outline,
             validationPassed=result.validation_passed,
@@ -33,11 +33,11 @@ class TimedOutlineService:
         )
 
     @staticmethod
-    def _to_timed_outline_metadata(
+    def _to_generation_input(
         request: GenerateTimedOutlineRequest,
-    ) -> TimedOutlineMetadata:
+    ) -> TimedOutlineGenerationInput:
         """Convert the frontend payload into orchestrator input."""
-        return TimedOutlineMetadata(
+        return TimedOutlineGenerationInput(
             blob_paths=request.blobPaths,
             course_title=request.courseTitle,
             course_description=request.courseDescription,

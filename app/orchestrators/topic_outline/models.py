@@ -7,7 +7,7 @@ from typing import Any
 
 
 @dataclass
-class TimedOutlineMetadata:
+class TimedOutlineGenerationInput:
     """Complete course context passed from the service into the TO orchestrator."""
 
     blob_paths: list[str] = field(default_factory=list)
@@ -36,8 +36,8 @@ class TimedOutlineMetadata:
 
 
 @dataclass
-class TopicOutlineResult:
-    """Final output of the topic outline (TO) generation pipeline."""
+class TimedOutlineGenerationResult:
+    """Final output of the timed outline generation pipeline."""
 
     outline: dict[str, Any]
     validation_passed: bool

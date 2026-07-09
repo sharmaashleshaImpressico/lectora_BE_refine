@@ -19,6 +19,13 @@ from app.ai.agents.learning_objective_agent.Lo_refine_agent.main import (
 from app.ai.agents.learning_objective_agent.Lo_refine_agent.models import (
     LORefinementInput,
 )
+from app.ai.agents.learning_objective_agent.Lo_regenerate_agent.main import (
+    LORegenerationAgent,
+)
+from app.ai.agents.learning_objective_agent.Lo_regenerate_agent.models import (
+    LORegenerationInput,
+    LORegenerationOutput,
+)
 from app.ai.agents.learning_objective_agent.Lo_validator.main import (
     LOValidatorAgent,
 )
@@ -166,3 +173,15 @@ class LearningObjectiveOrchestrator:
             repair_attempts=_MAX_REPAIR_ATTEMPTS,
             final_issues=_issues_as_dicts(current_issues),
         )
+
+    def regenerate_with_prompt(
+        self,
+        input_data: LORegenerationInput,
+    ) -> LORegenerationOutput:
+        """Revise existing objectives from user feedback — no validation or repair."""
+        logger.info(
+            "[learning_objective] Regenerating | objectives=%d | prompt_length=%d",
+            len(input_data.current_objectives),
+            len(input_data.regeneration_prompt.strip()),
+        )
+        return LORegenerationAgent(kernel=self.kernel).run(input_data)

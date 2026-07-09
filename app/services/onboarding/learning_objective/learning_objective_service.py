@@ -1,9 +1,12 @@
-"""Business logic for Learning Objective generation."""
+"""Business logic for Learning Objective generation and regeneration."""
 
 from __future__ import annotations
 
 from semantic_kernel import Kernel
 
+from app.ai.agents.learning_objective_agent.Lo_regenerate_agent.models import (
+    LORegenerationInput,
+)
 from app.ai.agents.learning_objective_agent.models import CourseMetadata
 from app.orchestrators.learning_objective.orchestrator import (
     LearningObjectiveOrchestrator,
@@ -11,6 +14,8 @@ from app.orchestrators.learning_objective.orchestrator import (
 from app.schemas.onboarding.learning_objective.learning_objective import (
     GenerateLearningObjectivesRequest,
     GenerateLearningObjectivesResponse,
+    RegenerateLearningObjectivesRequest,
+    RegenerateLearningObjectivesResponse,
 )
 
 
@@ -34,6 +39,17 @@ class LearningObjectiveService:
             finalIssues=result.final_issues,
         )
 
+    def regenerate_learning_objectives(
+        self,
+        request: RegenerateLearningObjectivesRequest,
+    ) -> RegenerateLearningObjectivesResponse:
+        """Revise existing objectives from user feedback via the orchestrator."""
+        input_data = self._to_regeneration_input(request)
+        result = self._orchestrator.regenerate_with_prompt(input_data)
+        return RegenerateLearningObjectivesResponse(
+            learningObjectives=result.objectives,
+        )
+
     @staticmethod
     def _to_course_metadata(
         request: GenerateLearningObjectivesRequest,
@@ -50,4 +66,19 @@ class LearningObjectiveService:
             source_analyses=[
                 {"source_name": path} for path in request.sourceMaterials
             ],  # paths only; full source analysis is out of scope for this API
+        )
+
+    @staticmethod
+    def _to_regeneration_input(
+        request: RegenerateLearningObjectivesRequest,
+    ) -> LORegenerationInput:
+        """Convert the regenerate request into orchestrator/agent input."""
+        return LORegenerationInput(
+            current_objectives=request.currentObjectives,
+            regeneration_prompt=request.regenerationPrompt,
+            course_title=request.courseTitle or "",
+            course_type=request.courseType or "",
+            course_duration=request.courseDuration or "",
+            skill_level=request.skillLevel or "",
+            target_audience=request.targetAudience or "",
         )

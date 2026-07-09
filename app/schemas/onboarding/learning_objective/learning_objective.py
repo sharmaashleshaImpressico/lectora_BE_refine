@@ -1,4 +1,4 @@
-"""Pydantic request/response schemas for Learning Objective generation."""
+"""Pydantic request/response schemas for Learning Objective APIs."""
 
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ class GenerateLearningObjectivesRequest(BaseModel):
     skillLevel: str = Field(..., min_length=1)
     targetAudience: str = Field(..., min_length=1)
     requiredTopics: list[str] = Field(..., min_length=1)
-    # Optional; reserved for a future regenerate API — ignored here.
+    # Optional; ignored by the generate endpoint.
     regenerationPrompt: str | None = None
     currentObjectives: list[str] | None = None
 
@@ -30,3 +30,21 @@ class GenerateLearningObjectivesResponse(BaseModel):
     validationPassed: bool
     repairAttempts: int
     finalIssues: list[dict[str, Any]]
+
+
+class RegenerateLearningObjectivesRequest(BaseModel):
+    """Payload for revising existing learning objectives from user feedback."""
+
+    currentObjectives: list[str] = Field(..., min_length=1)
+    regenerationPrompt: str = Field(..., min_length=1)
+    courseTitle: str | None = None
+    courseType: str | None = None
+    courseDuration: str | None = None
+    skillLevel: str | None = None
+    targetAudience: str | None = None
+
+
+class RegenerateLearningObjectivesResponse(BaseModel):
+    """Revised learning objectives returned after regeneration."""
+
+    learningObjectives: list[str]

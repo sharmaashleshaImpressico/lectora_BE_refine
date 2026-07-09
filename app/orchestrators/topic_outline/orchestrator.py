@@ -125,7 +125,7 @@ class TopicOutlineOrchestrator:
         metadata: TimedOutlineGenerationInput,
         cancel_event: threading.Event | None = None,
     ) -> TimedOutlineGenerationResult:
-        """Entry point for POST /documents/generate-to."""
+        """Entry point for POST /generate-to."""
         docx_paths, pdf_paths = _split_blob_paths(metadata.blob_paths)
         return self.execute(
             docx_paths=docx_paths or None,

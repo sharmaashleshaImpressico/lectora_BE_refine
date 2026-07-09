@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
+from app.core.auth.dependencies import require_valid_token
 from app.schemas.onboarding.course_basic.course import (
     CourseBasicCreate,
     CourseBasicData,
@@ -18,7 +19,10 @@ from app.services.onboarding.course_basic.course_service import CourseBasicServi
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(tags=["Course Basic"])
+router = APIRouter(
+    tags=["Course Basic"],
+    dependencies=[Depends(require_valid_token)],
+)
 
 
 @router.post(

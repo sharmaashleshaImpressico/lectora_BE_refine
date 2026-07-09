@@ -113,7 +113,7 @@ def _build_execution_settings(
     if config.temperature is not None:
         kwargs["temperature"] = config.temperature
     if config.max_tokens is not None:
-        kwargs["max_tokens"] = config.max_tokens
+        kwargs["max_completion_tokens"] = config.max_tokens
     if config.response_format is not None:
         kwargs["response_format"] = config.response_format
     return AzureChatPromptExecutionSettings(**kwargs)

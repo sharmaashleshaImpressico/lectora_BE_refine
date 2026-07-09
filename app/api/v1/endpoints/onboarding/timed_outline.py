@@ -19,9 +19,7 @@ from app.services.onboarding.timed_outline.timed_outline_service import (
 
 logger = logging.getLogger(__name__)
 
-# Backend paths: /documents/... (Vite proxy strips /api from FE /api/documents/...)
 router = APIRouter(
-    prefix="/documents",
     tags=["Timed Outline"],
     dependencies=[Depends(require_valid_token)],
 )

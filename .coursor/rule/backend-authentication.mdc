@@ -12,7 +12,7 @@ globs:
 
 # Backend Authentication Standard
 
-Protected backend APIs must validate the Microsoft Entra/MSAL bearer token before executing business logic.
+All backend APIs must validate the Microsoft Entra/MSAL bearer token before executing business logic.
 
 Frontend sends:
 

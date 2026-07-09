@@ -21,9 +21,7 @@ from app.services.onboarding.learning_objective.learning_objective_service impor
 
 logger = logging.getLogger(__name__)
 
-# Backend paths: /documents/... (Vite proxy strips /api from FE /api/documents/...)
 router = APIRouter(
-    prefix="/documents",
     tags=["Learning Objective"],
     dependencies=[Depends(require_valid_token)],
 )

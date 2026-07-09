@@ -17,7 +17,7 @@ class SourceAnalysisPromptContext:
 
 @dataclass(frozen=True)
 class ToWizardPromptContext:
-    """Structured onboarding preferences from POST /documents/generate-to."""
+    """Structured onboarding preferences from POST /generate-to."""
 
     experience_level: str | None = None
     learner_outcomes: str | None = None

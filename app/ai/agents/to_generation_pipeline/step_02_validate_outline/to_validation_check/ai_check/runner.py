@@ -369,7 +369,7 @@ class AIOutlineValidator:
                     else "All required topics detected by pre-check.",
                 },
                 "frontend_input_contract": {
-                    "source": "POST /documents/generate-to",
+                    "source": "POST /generate-to",
                     "a0_only_validation": True,
                     "notes": (
                         "Validate only against A0-generated TO and user inputs persisted from FE; "

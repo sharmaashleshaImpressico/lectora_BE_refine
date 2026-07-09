@@ -1,0 +1,181 @@
+---
+
+description: Backend API layering standard for FastAPI endpoint creation
+globs:
+
+* "app/api/**/*.py"
+* "app/services/**/*.py"
+* "app/orchestrators/**/*.py"
+* "app/agents/**/*.py"
+* "app/schemas/**/*.py"
+  alwaysApply: true
+
+---
+
+# Backend API Layering Standard
+
+All backend APIs must follow this architecture:
+
+`Endpoint → Service → Orchestrator → Agents/Repositories/External Services → Response`
+
+## Responsibilities
+
+### Endpoint layer
+
+Endpoint files live under:
+
+`app/api/...`
+
+Endpoint responsibilities:
+
+* Define HTTP route.
+* Accept and validate Pydantic request schema.
+* Call service method.
+* Return Pydantic response schema.
+* Handle HTTP-level exceptions consistently.
+* Register route in the correct router.
+
+Endpoint must not:
+
+* Call agents directly.
+* Contain business logic.
+* Contain orchestration loops.
+* Build LLM prompts.
+* Access database directly.
+* Perform validation/repair loops.
+
+### Service layer
+
+Service files live under:
+
+`app/services/...`
+
+Service responsibilities:
+
+* Represent the application use case.
+* Convert request DTO into internal metadata/input.
+* Call the correct feature orchestrator.
+* Convert orchestrator result into response DTO.
+* Coordinate repositories only when persistence is explicitly required.
+
+Service must not:
+
+* Call agents directly.
+* Contain generate/validate/refine loops.
+* Build LLM prompts.
+* Handle low-level HTTP details.
+
+### Orchestrator layer
+
+Orchestrator files live under:
+
+`app/orchestrators/...`
+
+Orchestrator responsibilities:
+
+* Coordinate feature workflow.
+* Decide which agent runs first, next, and last.
+* Own validation and repair loop.
+* Track repair attempts.
+* Return structured result to service.
+
+Orchestrator must not:
+
+* Import FastAPI endpoint classes.
+* Depend on frontend request payload directly.
+* Return raw LLM responses.
+* Persist data unless explicitly required by the feature design.
+
+### Agent layer
+
+Agent files live under:
+
+`app/agents/...`
+
+Agent responsibilities:
+
+* Perform one specific LLM task.
+* Accept structured input.
+* Return structured output.
+* Keep prompt logic isolated inside the agent or prompt module.
+
+Agent must not:
+
+* Import FastAPI request/response schemas.
+* Know about API endpoints.
+* Access HTTP request objects.
+* Access database directly unless explicitly designed as a tool.
+* Coordinate other agents.
+
+### Repository layer
+
+Repository files live under:
+
+`app/repositories/...`
+
+Repository responsibilities:
+
+* Encapsulate database queries.
+* Keep SQLAlchemy operations out of endpoint and orchestrator layers.
+* Return ORM/domain objects to service layer.
+
+## Layer Contract Naming
+
+Follow `.coursor/rule/layer-contract-naming.mdc` for all cross-layer model names.
+
+Quick reference:
+- API schemas: `{Action}{Feature}Request` / `{Action}{Feature}Response` in `app/schemas/...`
+- Service-orchestrator contracts: `{Feature}{Action}Input` / `{Feature}{Action}Result` in `app/orchestrators/{feature}/models.py`
+- Services map API schemas → orchestrator inputs; orchestrators map inputs → agent models internally
+- Never pass API schemas or generic names like `LearningObjectiveInput` into orchestrators or agents
+
+## File Naming Standard
+
+For a feature called `learning_objectives`:
+
+Endpoint:
+`app/api/v1/endpoints/documents/learning_objectives.py`
+
+Schema:
+`app/schemas/documents/learning_objectives.py`
+
+Service:
+`app/services/documents/learning_objective_service.py`
+
+Orchestrator:
+`app/orchestrators/learning_objective/orchestrator.py`
+`app/orchestrators/learning_objective/models.py`
+
+Agents:
+`app/agents/learning_objective/generation_agent.py`
+`app/agents/learning_objective/validator_agent.py`
+`app/agents/learning_objective/refinement_agent.py`
+
+## Response Standard
+
+Generation APIs should return clear structured responses. Do not return raw LLM text directly.
+
+For AI generation APIs, prefer:
+
+```python
+learningObjectives: list[str]
+validationPassed: bool
+repairAttempts: int
+finalIssues: list[dict]
+```
+
+Use consistent camelCase fields when matching frontend contract.
+
+## Implementation Rule
+
+When creating a new endpoint, first identify the feature use case and implement in this order:
+
+1. Schema
+2. Endpoint
+3. Service
+4. Orchestrator
+5. Agents
+6. Router registration
+7. Tests or manual validation command
+
+Do not add unrelated refactors while implementing one endpoint.

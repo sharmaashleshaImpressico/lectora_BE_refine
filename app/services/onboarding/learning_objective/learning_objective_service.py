@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from semantic_kernel import Kernel
 
-from app.ai.agents.learning_objective_agent.Lo_regenerate_agent.models import (
-    LORegenerationInput,
+from app.orchestrators.learning_objective.models import (
+    LearningObjectiveGenerationInput,
+    LearningObjectiveRegenerationInput,
 )
-from app.ai.agents.learning_objective_agent.models import CourseMetadata
 from app.orchestrators.learning_objective.orchestrator import (
     LearningObjectiveOrchestrator,
 )
@@ -30,8 +30,8 @@ class LearningObjectiveService:
         request: GenerateLearningObjectivesRequest,
     ) -> GenerateLearningObjectivesResponse:
         """Run generation, validation, and repair via the feature orchestrator."""
-        metadata = self._to_course_metadata(request)
-        result = self._orchestrator.execute(metadata)
+        input_data = self._to_generation_input(request)
+        result = self._orchestrator.generate_learning_objectives(input_data)
         return GenerateLearningObjectivesResponse(
             learningObjectives=result.objectives,
             validationPassed=result.validation_passed,
@@ -45,17 +45,18 @@ class LearningObjectiveService:
     ) -> RegenerateLearningObjectivesResponse:
         """Revise existing objectives from user feedback via the orchestrator."""
         input_data = self._to_regeneration_input(request)
-        result = self._orchestrator.regenerate_with_prompt(input_data)
+        result = self._orchestrator.regenerate_learning_objectives(input_data)
         return RegenerateLearningObjectivesResponse(
             learningObjectives=result.objectives,
         )
 
     @staticmethod
-    def _to_course_metadata(
+    def _to_generation_input(
         request: GenerateLearningObjectivesRequest,
-    ) -> CourseMetadata:
+    ) -> LearningObjectiveGenerationInput:
         """Convert the frontend payload into orchestrator input."""
-        return CourseMetadata(
+        return LearningObjectiveGenerationInput(
+            source_materials=request.sourceMaterials,
             course_title=request.courseTitle,
             course_description=request.courseDescription,
             course_type=request.courseType,
@@ -63,17 +64,14 @@ class LearningObjectiveService:
             skill_level=request.skillLevel,
             target_audience=request.targetAudience,
             required_topics=request.requiredTopics,
-            source_analyses=[
-                {"source_name": path} for path in request.sourceMaterials
-            ],  # paths only; full source analysis is out of scope for this API
         )
 
     @staticmethod
     def _to_regeneration_input(
         request: RegenerateLearningObjectivesRequest,
-    ) -> LORegenerationInput:
-        """Convert the regenerate request into orchestrator/agent input."""
-        return LORegenerationInput(
+    ) -> LearningObjectiveRegenerationInput:
+        """Convert the regenerate request into orchestrator input."""
+        return LearningObjectiveRegenerationInput(
             current_objectives=request.currentObjectives,
             regeneration_prompt=request.regenerationPrompt,
             course_title=request.courseTitle or "",

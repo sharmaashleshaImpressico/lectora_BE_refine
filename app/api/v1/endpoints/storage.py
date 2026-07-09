@@ -4,14 +4,20 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+
+from app.core.auth.dependencies import require_valid_token
 
 from app.schemas.onboarding.documents.browse import BrowseResponse
 from app.services.onboarding.documents.document_upload_service import DocumentUploadService
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/storage", tags=["Storage"])
+router = APIRouter(
+    prefix="/storage",
+    tags=["Storage"],
+    dependencies=[Depends(require_valid_token)],
+)
 
 
 @router.get(

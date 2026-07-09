@@ -7,12 +7,15 @@ import logging
 from fastapi import (
     APIRouter,
     BackgroundTasks,
+    Depends,
     File,
     Form,
     HTTPException,
     UploadFile,
     status,
 )
+
+from app.core.auth.dependencies import require_valid_token
 
 from app.schemas.onboarding.documents.upload import (
     IngestionStatusResponse,
@@ -22,7 +25,11 @@ from app.services.onboarding.documents.document_upload_service import DocumentUp
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/documents", tags=["Documents"])
+router = APIRouter(
+    prefix="/documents",
+    tags=["Documents"],
+    dependencies=[Depends(require_valid_token)],
+)
 
 
 @router.post(

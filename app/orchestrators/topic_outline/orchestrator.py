@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import logging
 from dataclasses import dataclass, field
 from typing import Any
@@ -132,13 +131,10 @@ class TopicOutlineOrchestrator:
         a0_result = generation_agent.run()
         current_outline = a0_result.llm_to_outline or {}
 
-        # A0RequestSynthesizer only exposes its full working state via a file
-        # on disk (shared_state_path) — this is the one unavoidable disk read,
-        # since that agent's internals aren't in scope here. Everything past
-        # this point (validate/refine loop) stays in-memory: `shared_state` is
-        # loaded once and then mutated directly, never re-read or re-written.
-        with open(a0_result.shared_state_path, encoding="utf-8") as handle:
-            shared_state = json.load(handle)
+        # A0Result already carries the finalized shared_state in memory.
+        # Everything past this point (validate/refine loop) mutates it
+        # directly, never re-reading or re-writing shared_state.json.
+        shared_state = a0_result.shared_state
 
         # Step 2: Initial validation (S1)
         validator_agent = S1Validator(

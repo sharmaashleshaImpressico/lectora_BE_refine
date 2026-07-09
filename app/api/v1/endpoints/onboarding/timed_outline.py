@@ -11,6 +11,8 @@ from app.api.deps import get_kernel
 from app.schemas.onboarding.timed_outline.timed_outline import (
     GenerateTimedOutlineRequest,
     GenerateTimedOutlineResponse,
+    RegenerateTimedOutlineRequest,
+    RegenerateTimedOutlineResponse,
 )
 from app.services.onboarding.timed_outline.timed_outline_service import (
     TimedOutlineService,
@@ -40,4 +42,35 @@ def generate_timed_outline(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Could not generate timed outline. Please try again.",
+        )
+
+
+@router.post(
+    "/generate-to/cancel",
+    status_code=status.HTTP_200_OK,
+)
+def cancel_generate_to() -> dict[str, str]:
+    """Cancel the in-flight timed-outline generation, if any (best-effort)."""
+    TimedOutlineService.cancel_generate_to()
+    return {"status": "cancelled"}
+
+
+@router.post(
+    "/regenerate-timed-outline",
+    response_model=RegenerateTimedOutlineResponse,
+    status_code=status.HTTP_200_OK,
+)
+def regenerate_timed_outline(
+    payload: RegenerateTimedOutlineRequest,
+    kernel: Kernel = Depends(get_kernel),
+) -> RegenerateTimedOutlineResponse:
+    """Revise an existing timed outline in place using a free-text prompt."""
+    try:
+        service = TimedOutlineService(kernel)
+        return service.regenerate_timed_outline(payload)
+    except Exception:
+        logger.exception("Failed to regenerate timed outline")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Could not regenerate timed outline. Please try again.",
         )

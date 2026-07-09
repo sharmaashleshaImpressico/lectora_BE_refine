@@ -6,7 +6,8 @@ import threading
 import time
 from typing import Literal
 
-IngestionStatusValue = Literal["pending", "processing", "indexed", "parsed", "failed"]
+IngestionStatusValue = Literal["pending",
+                               "processing", "indexed", "parsed", "failed"]
 
 _lock = threading.Lock()
 _statuses: dict[str, dict[str, object]] = {}

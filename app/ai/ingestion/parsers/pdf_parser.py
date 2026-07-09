@@ -80,12 +80,14 @@ def _extract_doc_pdftotext(path: str) -> list[str]:
         )
         if result.returncode != 0:
             stderr = result.stderr.decode("utf-8", errors="replace").strip()
-            logger.warning("[pdf_parser] pdftotext exited %d: %s", result.returncode, stderr)
+            logger.warning("[pdf_parser] pdftotext exited %d: %s",
+                           result.returncode, stderr)
             return []
         full_text = result.stdout.decode("utf-8", errors="replace")
         return full_text.split("\f")
     except FileNotFoundError:
-        logger.warning("[pdf_parser] pdftotext not found — poppler is not installed.")
+        logger.warning(
+            "[pdf_parser] pdftotext not found — poppler is not installed.")
         return []
     except subprocess.TimeoutExpired:
         logger.warning("[pdf_parser] pdftotext timed out for %s", path)
@@ -114,7 +116,8 @@ def _page_text_to_nodes(
         if not stripped:
             raw_index += 1
             continue
-        heading_level = _infer_heading_level(stripped, numbered_re, all_caps_re)
+        heading_level = _infer_heading_level(
+            stripped, numbered_re, all_caps_re)
         nodes.append(DocumentNode(
             node_id=uuid.uuid4().hex[:12],
             block_type=BlockType.HEADING if heading_level else BlockType.PARAGRAPH,

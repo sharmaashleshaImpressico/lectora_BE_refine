@@ -79,7 +79,8 @@ class DocumentUploadService:
             self._upload_to_azure(blob_path, content, ext)
         else:
             dest = self._local_store.save_bytes(blob_path, content)
-            logger.info("[upload] Saved %s → %s (%d bytes)", filename, dest, len(content))
+            logger.info("[upload] Saved %s → %s (%d bytes)",
+                        filename, dest, len(content))
 
         if ext in _INGESTABLE_EXTENSIONS:
             set_status(document_id, "pending")
@@ -155,10 +156,12 @@ class DocumentUploadService:
             self._blob_client.upload_bytes(
                 blob_path,
                 content,
-                content_type=CONTENT_TYPES.get(ext, "application/octet-stream"),
+                content_type=CONTENT_TYPES.get(
+                    ext, "application/octet-stream"),
             )
         except Exception as exc:
-            logger.exception("[upload] Failed to upload to Azure Blob: blob_path=%s", blob_path)
+            logger.exception(
+                "[upload] Failed to upload to Azure Blob: blob_path=%s", blob_path)
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="Failed to upload file to storage — see server logs.",
@@ -219,7 +222,8 @@ async def _ingest_document(
             total_chunks=result.total_chunks,
         )
     except Exception as exc:
-        logger.exception("[upload] Ingestion failed for document_id=%s", document_id)
+        logger.exception(
+            "[upload] Ingestion failed for document_id=%s", document_id)
         set_status(document_id, "failed", error=str(exc))
     finally:
         if tmp_path:

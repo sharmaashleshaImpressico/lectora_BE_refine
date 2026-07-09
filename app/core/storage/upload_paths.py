@@ -20,7 +20,8 @@ def parse_course_topic(course_topic: str) -> str:
     cleaned = re.sub(r"[^\w\s-]", "", (course_topic or "").strip())
     slug = re.sub(r"[\s_]+", "-", cleaned).strip("-").lower()
     if not slug:
-        raise ValueError("courseTopic must contain at least one alphanumeric character.")
+        raise ValueError(
+            "courseTopic must contain at least one alphanumeric character.")
     return slug[:120]
 
 
@@ -38,5 +39,6 @@ def validate_upload_filename(filename: str | None) -> str:
     ext = Path(safe_name).suffix.lower()
     if ext not in ALLOWED_UPLOAD_EXTENSIONS:
         allowed = ", ".join(sorted(ALLOWED_UPLOAD_EXTENSIONS))
-        raise ValueError(f"Unsupported file type '{ext or '(none)'}'. Allowed: {allowed}")
+        raise ValueError(
+            f"Unsupported file type '{ext or '(none)'}'. Allowed: {allowed}")
     return safe_name

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import threading
 from typing import Any
 
 from semantic_kernel import Kernel
@@ -122,6 +123,7 @@ class TopicOutlineOrchestrator:
     def generate_timed_outline(
         self,
         metadata: TimedOutlineGenerationInput,
+        cancel_event: threading.Event | None = None,
     ) -> TimedOutlineGenerationResult:
         """Entry point for POST /documents/generate-to."""
         docx_paths, pdf_paths = _split_blob_paths(metadata.blob_paths)
@@ -141,6 +143,7 @@ class TopicOutlineOrchestrator:
             wizard_prompt_context=_build_wizard_prompt_context(metadata),
             validation_hints=_build_validation_hints(metadata),
             difficulty_level=metadata.difficulty,
+            cancel_event=cancel_event,
         )
 
     def execute(
@@ -163,6 +166,7 @@ class TopicOutlineOrchestrator:
         wizard_learning_objectives: list[str] | None = None,
         preferred_chapters: int | None = None,
         wizard_prompt_context: ToWizardPromptContext | None = None,
+        cancel_event: threading.Event | None = None,
     ) -> TimedOutlineGenerationResult:
         logger.info(
             "[topic_outline] Starting | difficulty=%r | has_to=%s",
@@ -190,6 +194,7 @@ class TopicOutlineOrchestrator:
             wizard_learning_objectives=wizard_learning_objectives,
             preferred_chapters=preferred_chapters,
             wizard_prompt_context=wizard_prompt_context,
+            cancel_event=cancel_event,
         )
         a0_result = generation_agent.run()
         current_outline = a0_result.llm_to_outline or {}

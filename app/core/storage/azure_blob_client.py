@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
+from azure.core.exceptions import ResourceNotFoundError
 from azure.storage.blob import BlobPrefix, BlobServiceClient, ContentSettings
 
 from app.core.config import AzureStorageSettings, azure_storage_settings
@@ -68,6 +69,27 @@ class AzureBlobClient:
             self.container_name,
         )
 
+    def download_bytes(self, blob_path: str) -> bytes:
+        """Download a blob's raw bytes from the configured container."""
+        blob_client = (
+            self._service_client()
+            .get_container_client(self.container_name)
+            .get_blob_client(blob_path)
+        )
+        try:
+            content = blob_client.download_blob().readall()
+        except ResourceNotFoundError as exc:
+            raise FileNotFoundError(
+                f"Blob '{blob_path}' not found in container '{self.container_name}'."
+            ) from exc
+        logger.info(
+            "[blob] Downloaded %s (%d bytes) from container %s",
+            blob_path,
+            len(content),
+            self.container_name,
+        )
+        return content
+
     def list_entries(self, prefix: str) -> list[StorageEntryData]:
         """List immediate folders/files under `prefix` (non-recursive)."""
         container_client = self._service_client().get_container_client(self.container_name)
@@ -108,6 +130,10 @@ class LocalUploadStore:
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_bytes(content)
         return dest
+
+    def resolve(self, blob_path: str) -> Path:
+        """Return the local filesystem path that mirrors `blob_path` under the upload root."""
+        return self._root / blob_path
 
     def list_entries(self, prefix: str) -> list[StorageEntryData]:
         """List immediate folders/files under `prefix` (non-recursive), mirroring blob paths."""

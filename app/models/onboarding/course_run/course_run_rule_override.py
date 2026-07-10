@@ -16,8 +16,8 @@ class CourseRunRuleOverride(Base):
     __tablename__ = "course_run_rule_overrides"
 
     id: Mapped[int] = mapped_column(Integer, Identity(start=1, increment=1), primary_key=True)
-    course_run_id: Mapped[str] = mapped_column(
-        String(64), ForeignKey("course_runs.id"), nullable=False
+    course_run_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("course_runs.id"), nullable=False
     )
     rule_name: Mapped[str] = mapped_column(String(255), nullable=False)
     original_value_json: Mapped[str | None] = mapped_column(Text, nullable=True)

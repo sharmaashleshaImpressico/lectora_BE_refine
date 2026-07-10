@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from app.models.onboarding.course_run.course_run_spec import CourseRunSpec
 from app.repositories.course_run_repository import CourseRunRepository
 from app.repositories.course_run_spec_repository import CourseRunSpecRepository
-from app.schemas.onboarding.course_run.course_run_spec import CourseRunSpecCreate, generate_id
+from app.schemas.onboarding.course_run.course_run_spec import CourseRunSpecCreate
 from app.services.onboarding.course_run.course_run_service import CourseRunNotFoundError
 
 logger = logging.getLogger(__name__)
@@ -29,7 +29,7 @@ class CourseRunSpecService:
         if course_run is None:
             raise CourseRunNotFoundError(f"Course run '{payload.course_run_id}' not found.")
 
-        spec = CourseRunSpec(id=generate_id(), **payload.model_dump())
+        spec = CourseRunSpec(**payload.model_dump())
         created = self.repository.create(spec)
         logger.info("Created course run spec %s (run %s)", created.id, created.course_run_id)
         return created

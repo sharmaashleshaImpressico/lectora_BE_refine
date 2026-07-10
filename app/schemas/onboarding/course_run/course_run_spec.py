@@ -2,23 +2,15 @@
 
 from __future__ import annotations
 
-import uuid
 from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field
-
-ID_PREFIX = "SPEC-"
-
-
-def generate_id() -> str:
-    """Generate a unique, readable course-run-spec id, e.g. SPEC-9F3A1C2B."""
-    return f"{ID_PREFIX}{uuid.uuid4().hex[:8].upper()}"
 
 
 class CourseRunSpecCreate(BaseModel):
     """Payload accepted from the frontend. `id` is never supplied here."""
 
-    course_run_id: str = Field(..., min_length=1, max_length=64, description="Id of the course run this spec belongs to")
+    course_run_id: int = Field(..., description="Id of the course run this spec belongs to")
     course_scope: str | None = None
     duration_hours: float | None = None
     difficulty_level: str | None = Field(default=None, max_length=100)
@@ -46,8 +38,8 @@ class CourseRunSpecData(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
-    id: str
-    course_run_id: str
+    id: int
+    course_run_id: int
     course_scope: str | None
     duration_hours: float | None
     difficulty_level: str | None

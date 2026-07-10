@@ -12,7 +12,7 @@ DEFAULT_UPLOADED_BY = "system"
 class CourseRunInputCreate(BaseModel):
     """Payload accepted from the frontend. `id` is never supplied here."""
 
-    course_run_id: str = Field(..., min_length=1, max_length=64, description="Id of the course run this input belongs to")
+    course_run_id: int = Field(..., description="Id of the course run this input belongs to")
     input_type: str = Field(..., min_length=1, max_length=100, description="Kind of input, e.g. study_guide, timed_outline")
     original_filename: str = Field(..., min_length=1, max_length=512)
     blob_path: str = Field(..., min_length=1, max_length=1024, description="Path of the already-uploaded blob")
@@ -33,7 +33,7 @@ class CourseRunInputData(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
-    course_run_id: str
+    course_run_id: int
     input_type: str
     original_filename: str
     blob_path: str

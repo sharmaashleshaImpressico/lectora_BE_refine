@@ -41,17 +41,15 @@ class CourseRunService:
             if parent_run is None:
                 raise CourseRunNotFoundError(f"Course run '{payload.created_from_run_id}' not found.")
 
-        course_id = str(payload.course_id)
-        next_version = self.repository.latest_version_number(course_id) + 1
+        next_version = self.repository.latest_version_number(payload.course_id) + 1
 
         record = CourseRunInternal(
-            course_id=course_id,
+            course_id=payload.course_id,
             version_number=next_version,
             created_from_run_id=payload.created_from_run_id,
             created_by=payload.created_by,
         )
         course_run = CourseRun(
-            id=record.id,
             course_id=record.course_id,
             version_number=record.version_number,
             created_from_run_id=record.created_from_run_id,

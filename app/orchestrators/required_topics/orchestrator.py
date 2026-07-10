@@ -23,6 +23,12 @@ from app.ai.agents.required_topic.rt_refine_agent.models import (
 from app.ai.agents.required_topic.rt_validator.main import (
     RTValidatorAgent,
 )
+from app.ai.agents.required_topic.regenerate_required_topic_agent.main import (
+    RTRegenerationAgent,
+)
+from app.ai.agents.required_topic.regenerate_required_topic_agent.models import (
+    RTRegenerationInput,
+)
 from app.ai.agents.required_topic.rt_validator.models import (
     RTValidationInput,
     RTValidationIssue,
@@ -30,6 +36,8 @@ from app.ai.agents.required_topic.rt_validator.models import (
 from app.orchestrators.required_topics.models import (
     RequiredTopicsGenerationInput,
     RequiredTopicsGenerationResult,
+    RequiredTopicsRegenerationInput,
+    RequiredTopicsRegenerationResult,
 )
 
 logger = logging.getLogger(__name__)
@@ -61,6 +69,15 @@ def _format_learner_outcomes(
         lines.append("Desired outcomes:")
         lines.extend(f"- {outcome.strip()}" for outcome in outcomes if outcome.strip())
     return "\n".join(lines)
+
+
+def _to_regeneration_agent_input(
+    input_data: RequiredTopicsRegenerationInput,
+) -> RTRegenerationInput:
+    return RTRegenerationInput(
+        current_topics=input_data.current_topics,
+        regeneration_prompt=input_data.regeneration_prompt,
+    )
 
 
 def _to_pipeline_metadata(
@@ -204,3 +221,17 @@ class RequiredTopicsOrchestrator:
                 current_issues
             ),
         )
+
+    async def regenerate_required_topics(
+        self,
+        input_data: RequiredTopicsRegenerationInput,
+    ) -> RequiredTopicsRegenerationResult:
+        """Revise existing topics from user feedback — no validation or repair."""
+        agent_input = _to_regeneration_agent_input(input_data)
+        logger.info(
+            "[required_topics] Regenerating | topics=%d | prompt_length=%d",
+            len(agent_input.current_topics),
+            len(agent_input.regeneration_prompt.strip()),
+        )
+        result = await RTRegenerationAgent(kernel=self.kernel).run(agent_input)
+        return RequiredTopicsRegenerationResult(topics=result.topics)

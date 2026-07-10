@@ -26,3 +26,16 @@ class GenerateRequiredTopicsResponse(BaseModel):
     validationPassed: bool
     repairAttempts: int
     finalIssues: list[dict[str, Any]]
+
+
+class RegenerateRequiredTopicsRequest(BaseModel):
+    """Payload for revising existing required topics from user feedback."""
+
+    currentTopics: list[str] = Field(..., min_length=1)
+    regenerationPrompt: str = Field(..., min_length=1)
+
+
+class RegenerateRequiredTopicsResponse(BaseModel):
+    """Revised required topics returned after regeneration."""
+
+    requiredTopics: list[str]

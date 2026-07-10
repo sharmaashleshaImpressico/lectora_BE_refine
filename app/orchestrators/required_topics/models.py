@@ -28,3 +28,18 @@ class RequiredTopicsGenerationResult:
     validation_passed: bool
     repair_attempts: int
     final_issues: list[dict[str, Any]] = field(default_factory=list)
+
+
+@dataclass
+class RequiredTopicsRegenerationInput:
+    """Context for revising existing required topics from user feedback."""
+
+    current_topics: list[str] = field(default_factory=list)
+    regeneration_prompt: str = ""
+
+
+@dataclass
+class RequiredTopicsRegenerationResult:
+    """Final output of the required topics regeneration pipeline."""
+
+    topics: list[str]

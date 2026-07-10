@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, String, Text
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Identity, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -15,9 +15,9 @@ class CourseRunSpec(Base):
 
     __tablename__ = "course_run_specs"
 
-    id: Mapped[str] = mapped_column(String(64), primary_key=True)
-    course_run_id: Mapped[str] = mapped_column(
-        String(64), ForeignKey("course_runs.id"), nullable=False
+    id: Mapped[int] = mapped_column(Integer, Identity(start=1, increment=1), primary_key=True)
+    course_run_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("course_runs.id"), nullable=False
     )
     course_scope: Mapped[str | None] = mapped_column(Text, nullable=True)
     duration_hours: Mapped[float | None] = mapped_column(Float, nullable=True)

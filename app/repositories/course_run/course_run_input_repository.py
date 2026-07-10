@@ -13,3 +13,6 @@ class CourseRunInputRepository(BaseRepository[CourseRunInput]):
 
     def __init__(self, db: Session) -> None:
         super().__init__(CourseRunInput, db)
+
+    def list_by_course_run(self, course_run_id: str) -> list[CourseRunInput]:
+        return self.db.query(self.model).filter_by(course_run_id=course_run_id).all()

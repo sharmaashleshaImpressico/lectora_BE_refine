@@ -14,7 +14,7 @@ class CourseRunRepository(BaseRepository[CourseRun]):
     def __init__(self, db: Session) -> None:
         super().__init__(CourseRun, db)
 
-    def latest_version_number(self, course_id: str) -> int:
+    def latest_version_number(self, course_id: int) -> int:
         """Return the highest `version_number` recorded for a course, or 0 if none exist."""
         latest = (
             self.db.query(CourseRun)

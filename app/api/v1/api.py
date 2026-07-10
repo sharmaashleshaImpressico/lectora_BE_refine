@@ -20,10 +20,12 @@ from app.api.v1.endpoints.onboarding import (
     timed_outline,
     documents,
 )
+from app.api.v1.endpoints.content_generation import course_generation_job
 
 api_router = APIRouter()
 api_router.include_router(course_basic.router)
 api_router.include_router(course_run.router)
+api_router.include_router(course_generation_job.router)
 api_router.include_router(health.router)
 api_router.include_router(learning_objective.router)
 api_router.include_router(required_topic.router)

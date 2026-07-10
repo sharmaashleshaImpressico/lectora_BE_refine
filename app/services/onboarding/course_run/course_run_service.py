@@ -8,8 +8,8 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.models.onboarding.course_run.course_run import CourseRun
-from app.repositories.course_repository import CourseRepository
-from app.repositories.course_run_repository import CourseRunRepository
+from app.repositories.course_basic.course_repository import CourseRepository
+from app.repositories.course_run.course_run_repository import CourseRunRepository
 from app.schemas.onboarding.course_run.course_run import (
     CourseRunCreate,
     CourseRunInternal,

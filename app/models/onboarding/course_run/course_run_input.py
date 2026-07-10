@@ -16,8 +16,8 @@ class CourseRunInput(Base):
     __tablename__ = "course_run_inputs"
 
     id: Mapped[int] = mapped_column(Integer, Identity(start=1, increment=1), primary_key=True)
-    course_run_id: Mapped[str] = mapped_column(
-        String(64), ForeignKey("course_runs.id"), nullable=False
+    course_run_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("course_runs.id"), nullable=False
     )
     input_type: Mapped[str] = mapped_column(String(100), nullable=False)
     original_filename: Mapped[str] = mapped_column(String(512), nullable=False)

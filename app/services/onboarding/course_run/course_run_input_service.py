@@ -7,8 +7,8 @@ import logging
 from sqlalchemy.orm import Session
 
 from app.models.onboarding.course_run.course_run_input import CourseRunInput
-from app.repositories.course_run_input_repository import CourseRunInputRepository
-from app.repositories.course_run_repository import CourseRunRepository
+from app.repositories.course_run.course_run_input_repository import CourseRunInputRepository
+from app.repositories.course_run.course_run_repository import CourseRunRepository
 from app.schemas.onboarding.course_run.course_run_input import CourseRunInputCreate
 from app.services.onboarding.course_run.course_run_service import CourseRunNotFoundError
 

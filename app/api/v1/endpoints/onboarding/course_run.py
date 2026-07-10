@@ -12,6 +12,8 @@ from app.core.auth.dependencies import require_valid_token
 from app.schemas.onboarding.course_run.course_run import (
     CourseRunCreate,
     CourseRunData,
+    CourseRunDetailData,
+    CourseRunDetailResponse,
     CourseRunResponse,
 )
 from app.schemas.onboarding.course_run.course_run_input import (
@@ -50,17 +52,38 @@ router = APIRouter(
 
 @router.post(
     "/course-runs",
-    response_model=CourseRunResponse,
+    response_model=CourseRunDetailResponse,
     status_code=status.HTTP_201_CREATED,
 )
 def create_course_run(
     payload: CourseRunCreate,
     db: Session = Depends(get_db),
-) -> CourseRunResponse:
-    """Create a new run (generation attempt) for a course."""
+) -> CourseRunDetailResponse:
+    """Create a new run (generation attempt) for a course.
+
+    Also creates the run's spec, inputs, and rule overrides in the same
+    request. All writes share one `db` session, which `get_db` commits once
+    at the end of the request (and rolls back entirely on any error), so the
+    whole operation is atomic — the frontend only needs to call this one
+    endpoint.
+    """
     try:
-        service = CourseRunService(db)
-        course_run = service.create_course_run(payload)
+        course_run = CourseRunService(db).create_course_run(payload)
+        course_run_id = str(course_run.id)
+
+        spec = None
+        if payload.spec is not None:
+            spec = CourseRunSpecService(db).create_spec(payload.spec.to_create(course_run_id))
+
+        inputs = [
+            CourseRunInputService(db).create_input(item.to_create(course_run_id))
+            for item in payload.inputs
+        ]
+
+        rule_overrides = [
+            CourseRunRuleOverrideService(db).create_override(item.to_create(course_run_id))
+            for item in payload.rule_overrides
+        ]
     except (CourseNotFoundError, CourseRunNotFoundError) as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
     except Exception:
@@ -70,7 +93,15 @@ def create_course_run(
             detail="Could not create the course run. Please try again.",
         )
 
-    return CourseRunResponse(success=True, data=CourseRunData.model_validate(course_run))
+    return CourseRunDetailResponse(
+        success=True,
+        data=CourseRunDetailData(
+            run=CourseRunData.model_validate(course_run),
+            spec=CourseRunSpecData.model_validate(spec) if spec is not None else None,
+            inputs=[CourseRunInputData.model_validate(item) for item in inputs],
+            rule_overrides=[CourseRunRuleOverrideData.model_validate(item) for item in rule_overrides],
+        ),
+    )
 
 
 @router.post(

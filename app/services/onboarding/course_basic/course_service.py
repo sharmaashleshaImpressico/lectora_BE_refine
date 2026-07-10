@@ -7,7 +7,7 @@ import logging
 from sqlalchemy.orm import Session
 
 from app.models.onboarding.course_basic.course_basic import CourseBasic
-from app.repositories.course_repository import CourseRepository
+from app.repositories.course_basic.course_repository import CourseRepository
 from app.schemas.onboarding.course_basic.course import (
     CourseBasicCreate,
     CourseBasicInternal,

@@ -4,7 +4,7 @@ from typing_extensions import TypedDict
 
 
 class A1State(TypedDict):
-    shared_state_path: str
+    a0_shared_state: dict[str, Any]
     docx_path: str
     run_id: str
     a0_data: dict[str, Any]

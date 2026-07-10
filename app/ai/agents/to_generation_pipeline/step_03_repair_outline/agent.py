@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import logging
-from pathlib import Path
 from typing import Any, Callable
 
 from semantic_kernel import Kernel
@@ -30,9 +29,6 @@ from app.ai.agents.to_generation_pipeline.step_03_repair_outline.utils.issues im
 from app.ai.agents.to_generation_pipeline.step_03_repair_outline.utils.message_builder import (
     RefinementMessageBuilder,
 )
-from app.ai.agents.to_generation_pipeline.step_03_repair_outline.utils.outline_persister import (
-    OutlinePersister,
-)
 from app.ai.agents.to_generation_pipeline.step_03_repair_outline.utils.response_parser import (
     RefinementResponseParser,
 )
@@ -55,7 +51,6 @@ class S1ValidatorRefineAgent:
         issue_filter: RefinementIssueFilter | None = None,
         message_builder: RefinementMessageBuilder | None = None,
         response_parser: RefinementResponseParser | None = None,
-        outline_persister: OutlinePersister | None = None,
         section1_normalizer: Section1LearningObjectiveNormalizer | None = None,
         llm_chat_fn: Callable[[Kernel, str, str, LLMConfig, str], str] | None = None,
         config_factory: Callable[[], LLMConfig] | None = None,
@@ -64,7 +59,6 @@ class S1ValidatorRefineAgent:
         self._issue_filter = issue_filter or RefinementIssueFilter()
         self._message_builder = message_builder or RefinementMessageBuilder()
         self._response_parser = response_parser or RefinementResponseParser()
-        self._outline_persister = outline_persister or OutlinePersister()
         self._section1_normalizer = section1_normalizer or Section1LearningObjectiveNormalizer()
         self._llm_chat = llm_chat_fn or llm_chat
         self._config_factory = config_factory or make_config
@@ -107,31 +101,6 @@ class S1ValidatorRefineAgent:
             len(repaired.get("sections") or []),
         )
         return S1RefinementOutput(outline=repaired, applied=True)
-
-    def run_from_shared_state(
-        self,
-        shared_state_path: str,
-        s1_report: S1ValidationReport,
-    ) -> S1RefinementOutput:
-        state_path = Path(shared_state_path).expanduser().resolve()
-        with open(state_path, encoding="utf-8") as handle:
-            state = json.load(handle)
-
-        refinement_issues = self._issue_filter.from_report(s1_report)
-        output = self.run(
-            S1RefinementInput(
-                current_outline=state.get("llm_to_outline_classification") or {},
-                issues=refinement_issues,
-                course_config=state.get("course_config") or {},
-            )
-        )
-        if output.applied:
-            self._outline_persister.persist(
-                shared_state_path,
-                output.outline,
-                refinement_issues=refinement_issues,
-            )
-        return output
 
     def _repair_outline(self, input_data: S1RefinementInput) -> dict[str, Any] | None:
         user_msg = self._message_builder.build(input_data)

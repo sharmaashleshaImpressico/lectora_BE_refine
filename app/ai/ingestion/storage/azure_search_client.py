@@ -36,6 +36,10 @@ class AzureSearchIngestionClient:
             "api-key": api_key,
             "Content-Type": "application/json",
         }
+        # Populated by ensure_index_exists() from the *live* index definition —
+        # used by upload_chunks() so dimension checks reflect what Azure
+        # actually has, not just what our local schema module expects.
+        self._verified_vector_dims: int | None = None
 
     # ── Index management ──────────────────────────────────────────────────────
 
@@ -44,6 +48,9 @@ class AzureSearchIngestionClient:
         index_url = f"{self._endpoint}/indexes/{self._index_name}?api-version={_API_VERSION}"
         try:
             resp = httpx.get(index_url, headers=self._headers, timeout=30)
+            logger.debug(
+                "[azure_search] GET %s -> %d", index_url, resp.status_code,
+            )
             if resp.status_code == 200:
                 doc_count = self._get_document_count()
                 logger.info(
@@ -51,11 +58,12 @@ class AzureSearchIngestionClient:
                     self._index_name,
                     doc_count if doc_count is not None else "unknown",
                 )
+                self._verify_live_schema(resp.json())
                 return
             if resp.status_code != 404:
                 raise RuntimeError(
                     f"Unexpected status {resp.status_code} checking index "
-                    f"'{self._index_name}': {resp.text[:200]}"
+                    f"'{self._index_name}': {resp.text[:400]}"
                 )
         except RuntimeError:
             raise
@@ -68,8 +76,13 @@ class AzureSearchIngestionClient:
             resp = httpx.post(
                 create_url, json=definition, headers=self._headers, timeout=_REQUEST_TIMEOUT
             )
+            logger.debug(
+                "[azure_search] POST %s -> %d: %s",
+                create_url, resp.status_code, resp.text[:400],
+            )
             if resp.status_code in (200, 201):
                 logger.info("[azure_search] Index '%s' created.", self._index_name)
+                self._verify_live_schema(resp.json())
                 return
             raise RuntimeError(
                 f"Failed to create index '{self._index_name}': "
@@ -79,6 +92,77 @@ class AzureSearchIngestionClient:
             raise
         except Exception as exc:
             raise RuntimeError(f"Exception creating index '{self._index_name}': {exc}") from exc
+
+    def delete_index(self) -> bool:
+        """Delete the index if it exists. Returns True if a delete was issued."""
+        index_url = f"{self._endpoint}/indexes/{self._index_name}?api-version={_API_VERSION}"
+        resp = httpx.delete(index_url, headers=self._headers, timeout=60)
+        if resp.status_code in (204, 404):
+            logger.info(
+                "[azure_search] Delete '%s' -> %d (204=deleted, 404=already absent)",
+                self._index_name, resp.status_code,
+            )
+            self._verified_vector_dims = None
+            return resp.status_code == 204
+        raise RuntimeError(
+            f"Failed to delete index '{self._index_name}': "
+            f"{resp.status_code} {resp.text[:400]}"
+        )
+
+    def _verify_live_schema(self, live_definition: dict) -> None:
+        """
+        Compare the index Azure actually has against what this pipeline expects.
+
+        The index may have been created earlier (by an older code version, or
+        manually) with a different embedding dimension or a missing vector
+        field. If so, every subsequent document upload is rejected by Azure
+        with an opaque per-doc error — this check catches that up front with
+        an actionable message instead of letting every chunk fail silently.
+        """
+        expected = get_index_definition(self._index_name)
+        expected_field = next(
+            (f for f in expected["fields"] if f.get("name") == "embedding_content"), None
+        )
+        live_field = next(
+            (f for f in live_definition.get("fields", []) if f.get("name") == "embedding_content"),
+            None,
+        )
+        expected_dims = expected_field.get("dimensions") if expected_field else None
+        live_dims = live_field.get("dimensions") if live_field else None
+        self._verified_vector_dims = live_dims
+
+        if live_field is None:
+            logger.error(
+                "[azure_search] Live index '%s' has no 'embedding_content' vector "
+                "field — every vector upload will be rejected.",
+                self._index_name,
+            )
+            raise RuntimeError(
+                f"Index '{self._index_name}' exists but is missing the "
+                "'embedding_content' vector field. Delete the index in Azure AI "
+                "Search (or set AZURE_SEARCH_INDEX_NAME to a new name) so it can "
+                "be recreated with the correct schema."
+            )
+
+        if expected_dims is not None and live_dims != expected_dims:
+            logger.error(
+                "[azure_search] Vector dimension mismatch for index '%s': "
+                "live=%s expected=%s. Every chunk upload will fail until this "
+                "is resolved.",
+                self._index_name, live_dims, expected_dims,
+            )
+            raise RuntimeError(
+                f"Index '{self._index_name}' has embedding_content "
+                f"dimensions={live_dims}, but the ingestion pipeline produces "
+                f"{expected_dims}-dim vectors. Delete the index (or point "
+                "AZURE_SEARCH_INDEX_NAME at a new index) so it is recreated "
+                "with matching dimensions."
+            )
+
+        logger.info(
+            "[azure_search] Live schema verified for '%s' (embedding_content dims=%s).",
+            self._index_name, live_dims,
+        )
 
     def _get_document_count(self) -> int | None:
         """Return total documents in the index, or None when the count API fails."""
@@ -172,13 +256,20 @@ class AzureSearchIngestionClient:
         upload_date = datetime.now(timezone.utc).isoformat()
         total_succeeded = 0
         total_failed = 0
+        sample_errors: list[str] = []
         batch_count = (len(chunks) + _BATCH_SIZE - 1) // _BATCH_SIZE
-        index_fields = get_index_definition(self._index_name)["fields"]
-        expected_dims = next(
-            int(field["dimensions"])
-            for field in index_fields
-            if field.get("name") == "embedding_content"
-        )
+        # Prefer the dimension confirmed against the *live* index (set by
+        # ensure_index_exists); fall back to the local schema definition if
+        # upload_chunks() is ever called without it (e.g. in isolated tests).
+        if self._verified_vector_dims is not None:
+            expected_dims = self._verified_vector_dims
+        else:
+            index_fields = get_index_definition(self._index_name)["fields"]
+            expected_dims = next(
+                int(field["dimensions"])
+                for field in index_fields
+                if field.get("name") == "embedding_content"
+            )
         missing_embeddings = [chunk.chunk_id for chunk in chunks if not chunk.embedding_content]
         wrong_dims = sorted({
             len(chunk.embedding_content or [])
@@ -205,11 +296,24 @@ class AzureSearchIngestionClient:
 
         for batch_start in range(0, len(chunks), _BATCH_SIZE):
             batch = chunks[batch_start : batch_start + _BATCH_SIZE]
-            payload = {"value": [_chunk_to_doc(c, upload_date) for c in batch]}
+            docs = [_chunk_to_doc(c, upload_date) for c in batch]
+            payload = {"value": docs}
+            logger.debug(
+                "[azure_search] Batch %d: uploading %d docs (keys=%s, "
+                "vector_lens=%s)",
+                batch_start,
+                len(docs),
+                [d["chunk_id"] for d in docs],
+                sorted({len(d["embedding_content"]) for d in docs if "embedding_content" in d}),
+            )
 
             try:
                 resp = httpx.post(
                     upload_url, json=payload, headers=self._headers, timeout=_REQUEST_TIMEOUT
+                )
+                logger.debug(
+                    "[azure_search] Batch %d: response status=%d body=%s",
+                    batch_start, resp.status_code, resp.text[:1000],
                 )
                 if resp.status_code in (200, 207):
                     for item in resp.json().get("value", []):
@@ -217,19 +321,29 @@ class AzureSearchIngestionClient:
                             total_succeeded += 1
                         else:
                             total_failed += 1
-                            logger.warning(
-                                "[azure_search] Doc failed: key=%s error=%s",
-                                item.get("key"), item.get("errorMessage"),
+                            err_msg = (
+                                f"key={item.get('key')} "
+                                f"statusCode={item.get('statusCode')} "
+                                f"error={item.get('errorMessage')}"
                             )
+                            logger.warning("[azure_search] Doc failed: %s", err_msg)
+                            if len(sample_errors) < 5:
+                                sample_errors.append(err_msg)
                 else:
                     logger.error(
                         "[azure_search] Batch upload %d returned %d: %s",
-                        batch_start, resp.status_code, resp.text[:400],
+                        batch_start, resp.status_code, resp.text[:1000],
                     )
                     total_failed += len(batch)
+                    if len(sample_errors) < 5:
+                        sample_errors.append(
+                            f"HTTP {resp.status_code}: {resp.text[:300]}"
+                        )
             except Exception as exc:
                 logger.error("[azure_search] Exception uploading batch %d: %s", batch_start, exc)
                 total_failed += len(batch)
+                if len(sample_errors) < 5:
+                    sample_errors.append(str(exc))
 
         doc_count = self._get_document_count()
         logger.info(
@@ -240,9 +354,10 @@ class AzureSearchIngestionClient:
             doc_count if doc_count is not None else "unknown",
         )
         if total_succeeded == 0 and chunks:
+            detail = "; ".join(sample_errors[:3]) if sample_errors else "no error detail captured"
             raise RuntimeError(
                 f"Azure Search upload failed for all {len(chunks)} chunks "
-                f"(index '{self._index_name}')"
+                f"(index '{self._index_name}'): {detail}"
             )
         return {"succeeded": total_succeeded, "failed": total_failed}
 

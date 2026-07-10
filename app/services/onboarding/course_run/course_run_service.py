@@ -4,14 +4,20 @@ from __future__ import annotations
 
 import logging
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.models.onboarding.course_run.course_run import CourseRun
 from app.repositories.course_repository import CourseRepository
 from app.repositories.course_run_repository import CourseRunRepository
-from app.schemas.onboarding.course_run.course_run import CourseRunCreate, CourseRunInternal
+from app.schemas.onboarding.course_run.course_run import (
+    CourseRunCreate,
+    CourseRunInternal,
+)
 
 logger = logging.getLogger(__name__)
+
+MAX_ID_COLLISION_RETRIES = 3
 
 
 class CourseNotFoundError(Exception):
@@ -20,6 +26,10 @@ class CourseNotFoundError(Exception):
 
 class CourseRunNotFoundError(Exception):
     """Raised when the referenced parent course run does not exist."""
+
+
+class CourseRunIdCollisionError(Exception):
+    """Raised when a unique course-run id could not be generated after retrying."""
 
 
 class CourseRunService:
@@ -39,25 +49,46 @@ class CourseRunService:
         if payload.created_from_run_id is not None:
             parent_run = self.repository.get_by_id(payload.created_from_run_id)
             if parent_run is None:
-                raise CourseRunNotFoundError(f"Course run '{payload.created_from_run_id}' not found.")
+                raise CourseRunNotFoundError(
+                    f"Course run '{payload.created_from_run_id}' not found."
+                )
 
-        course_id = str(payload.course_id)
-        next_version = self.repository.latest_version_number(course_id) + 1
+        next_version = self.repository.latest_version_number(payload.course_id) + 1
 
-        record = CourseRunInternal(
-            course_id=course_id,
-            version_number=next_version,
-            created_from_run_id=payload.created_from_run_id,
-            created_by=payload.created_by,
+        for attempt in range(1, MAX_ID_COLLISION_RETRIES + 1):
+            record = CourseRunInternal(
+                course_id=payload.course_id,
+                version_number=next_version,
+                created_from_run_id=payload.created_from_run_id,
+                created_by=payload.created_by,
+            )
+
+            course_run = CourseRun(
+                course_id=record.course_id,
+                version_number=record.version_number,
+                created_from_run_id=record.created_from_run_id,
+                status_code=record.status_code,
+                created_by=record.created_by,
+            )
+
+            try:
+                created = self.repository.create(course_run)
+            except IntegrityError:
+                self.db.rollback()
+                logger.warning(
+                    "Course run insert collided on attempt %s; regenerating.", attempt
+                )
+                continue
+
+            logger.info(
+                "Created course run %s (course %s, v%s)",
+                created.id,
+                created.course_id,
+                created.version_number,
+            )
+
+            return created
+
+        raise CourseRunIdCollisionError(
+            f"Could not generate a unique course-run id after {MAX_ID_COLLISION_RETRIES} attempts."
         )
-        course_run = CourseRun(
-            id=record.id,
-            course_id=record.course_id,
-            version_number=record.version_number,
-            created_from_run_id=record.created_from_run_id,
-            status_code=record.status_code,
-            created_by=record.created_by,
-        )
-        created = self.repository.create(course_run)
-        logger.info("Created course run %s (course %s, v%s)", created.id, created.course_id, created.version_number)
-        return created

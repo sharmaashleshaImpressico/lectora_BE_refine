@@ -12,6 +12,16 @@ _instance: "IngestionOrchestrator | None" = None
 _executor = ThreadPoolExecutor(max_workers=2)
 
 
+class IngestionError(RuntimeError):
+    """Ingestion failure that carries how many chunks were built before it
+    failed, so callers can record an accurate total_chunks even on failure
+    (chunking/embedding can succeed while only the Azure Search upload fails)."""
+
+    def __init__(self, message: str, *, total_chunks: int = 0) -> None:
+        super().__init__(message)
+        self.total_chunks = total_chunks
+
+
 class IngestionOrchestrator:
     """
     Orchestrate the document ingestion pipeline:
@@ -146,7 +156,7 @@ class IngestionOrchestrator:
                 logger.info("[ingestion] Embedding complete")
             except Exception as exc:
                 logger.error("[ingestion] Embedding failed; aborting ingestion: %s", exc)
-                raise
+                raise IngestionError(str(exc), total_chunks=len(chunks)) from exc
         else:
             logger.info("[ingestion] Skipping embedding (not configured or no chunks)")
 
@@ -162,7 +172,7 @@ class IngestionOrchestrator:
                 logger.info("[ingestion] Indexed: %s", index_result)
             except Exception as exc:
                 logger.warning("[ingestion] Azure Search upload failed: %s", exc)
-                raise
+                raise IngestionError(str(exc), total_chunks=len(chunks)) from exc
         else:
             logger.info("[ingestion] Skipping indexing (not configured or no chunks)")
 

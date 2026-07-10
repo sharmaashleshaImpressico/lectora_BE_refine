@@ -72,7 +72,7 @@ class TimedOutlineService:
         result = self._regeneration_agent.run(
             TORegenerationInput(
                 current_to=request.currentTo,
-                revision_prompt=request.regenerationPrompt,
+                revision_prompt=request.regenerationPrompt or "",
             )
         )
         return RegenerateTimedOutlineResponse(to=result.to)

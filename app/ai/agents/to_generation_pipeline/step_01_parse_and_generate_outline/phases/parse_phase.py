@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import logging
 import shutil
 from dataclasses import dataclass
@@ -406,38 +405,23 @@ class ParsePhase(BasePipelinePhase):
         synth = self._synth
         images_dir = doc_dir / "images"
         images: list[dict] = []
-        prior_state_path = doc_dir / "shared_state.json"
-        images_cached = images_dir.exists() and any(True for entry in images_dir.iterdir() if entry.is_file())
-        if images_cached:
-            synth._emit_step("Reusing previously extracted source images…")
-            logger.info("[A0] images_dir already populated — skipping re-extraction (retry cycle).")
-            if prior_state_path.exists():
-                try:
-                    with open(prior_state_path, encoding="utf-8") as state_handle:
-                        prior = json.load(state_handle)
-                    images = prior.get("images") or []
-                    images = filter_stored_image_records(images)
-                    logger.info("[A0] Loaded %d valid image record(s) from prior shared_state.", len(images))
-                except Exception:
-                    logger.warning("[A0] Could not load images from prior shared_state; continuing with empty list.")
-        else:
-            synth._emit_step("Extracting source images and preparing prompts…")
-            logger.info("[A0] Image extraction is disabled — skipping.")
-            # Image extraction is intentionally disabled for this pipeline.
-            # The extractors themselves are commented out in:
-            #   - doc_parser.DocParser.extract_all_images() (DOCX, reads word/media/* via zipfile)
-            #   - pdf_parser.PDFParser.extract_all_images() (PDF, reads embedded images via pypdf)
-            # if parser:
-            #     images.extend(parser.extract_all_images(images_dir))
-            # if pdf_parser:
-            #     images.extend(
-            #         pdf_parser.extract_all_images(
-            #             images_dir,
-            #             start_seq=len(images),
-            #             heading_anchors=pdf_heading_tree if pdf_heading_tree else None,
-            #         )
-            #     )
-            logger.info("[A0] Extracted %s images -> %s", len(images), images_dir)
-            images = filter_stored_image_records(images)
-            logger.info("[A0] Retained %s valid image record(s) after validation.", len(images))
+        synth._emit_step("Extracting source images and preparing prompts…")
+        logger.info("[A0] Image extraction is disabled — skipping.")
+        # Image extraction is intentionally disabled for this pipeline.
+        # The extractors themselves are commented out in:
+        #   - doc_parser.DocParser.extract_all_images() (DOCX, reads word/media/* via zipfile)
+        #   - pdf_parser.PDFParser.extract_all_images() (PDF, reads embedded images via pypdf)
+        # if parser:
+        #     images.extend(parser.extract_all_images(images_dir))
+        # if pdf_parser:
+        #     images.extend(
+        #         pdf_parser.extract_all_images(
+        #             images_dir,
+        #             start_seq=len(images),
+        #             heading_anchors=pdf_heading_tree if pdf_heading_tree else None,
+        #         )
+        #     )
+        logger.info("[A0] Extracted %s images -> %s", len(images), images_dir)
+        images = filter_stored_image_records(images)
+        logger.info("[A0] Retained %s valid image record(s) after validation.", len(images))
         return images

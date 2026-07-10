@@ -97,7 +97,6 @@ class AzureStorageSettings(BaseSettings):
     # Kept separate from `blob_container_name`, which `.env` may point at a
     # different container used for shared-state / pipeline artifacts.
     uploaded_documents_container_name: str = "uploaded-documents"
-    shared_state_backend: str = "auto"
     course_generation_artifacts_container_name: str = "course-generation-artifacts"
     local_upload_root: str = "data/uploads"
 

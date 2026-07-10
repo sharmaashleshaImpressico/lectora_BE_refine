@@ -50,7 +50,6 @@ class ValidationReportWriter:
             blockers=len(blockers),
             warnings=len(warnings),
             infos=len(infos),
-            report_path=None,
         )
 
     @classmethod

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+
 from sqlalchemy.orm import Session
 
 from app.models.onboarding.course_run.course_run import CourseRun
@@ -23,3 +25,17 @@ class CourseRunRepository(BaseRepository[CourseRun]):
             .first()
         )
         return latest.version_number if latest else 0
+
+    def count_all(self) -> int:
+        """Return the total number of course-run records."""
+        return self.db.query(CourseRun).count()
+
+    def count_by_statuses(self, status_codes: Sequence[str]) -> int:
+        """Return how many course runs match any of the given status codes."""
+        if not status_codes:
+            return 0
+        return (
+            self.db.query(CourseRun)
+            .filter(CourseRun.status_code.in_(list(status_codes)))
+            .count()
+        )

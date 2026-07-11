@@ -193,6 +193,9 @@ def _enrich_with_vector_chunks(
     lesson_objectives: list[int],
     spec_learning_objectives: list[str] | None,
     source_files: list[str] | None = None,
+    course_id: str | None = None,
+    document_ids: list[str] | None = None,
+    jurisdiction: str | None = None,
 ) -> None:
     """
     Fetch source chunks from Azure AI Search and distribute them to subtopics.
@@ -228,6 +231,9 @@ def _enrich_with_vector_chunks(
             subtopic_titles=sub_titles,
             objectives=nl_objectives,
             source_files=source_files,
+            course_id=course_id,
+            document_ids=document_ids,
+            jurisdiction=jurisdiction,
         )
     except Exception as exc:
         logger.warning(
@@ -250,6 +256,9 @@ def _enrich_with_vector_chunks(
         subtopics,
         lesson_title=lesson_title,
         source_files=source_files,
+        course_id=course_id,
+        document_ids=document_ids,
+        jurisdiction=jurisdiction,
     )
 
     chunk_counts = [len(s.get("matched_chunks", [])) for s in subtopics]
@@ -270,7 +279,15 @@ def _enrich_with_vector_chunks(
 
 # ── Public entry point ─────────────────────────────────────────────────────────
 
-def map_sections(course_spec: dict, outline: dict) -> list[dict]:
+def map_sections(
+    course_spec: dict,
+    outline: dict,
+    *,
+    course_id: str | None = None,
+    document_ids: list[str] | None = None,
+    run_id: str | None = None,
+    jurisdiction: str | None = None,
+) -> list[dict]:
     """
     Map TO lesson structure to source content via Azure AI Search vector retrieval.
 
@@ -282,7 +299,34 @@ def map_sections(course_spec: dict, outline: dict) -> list[dict]:
       - Structural metadata from the TO outline (title, timing).
       - KC flags and objective indices propagated from A1 course_spec.
       - matched_chunks: vector-retrieved source content ready for A2.
+
+    Retrieval scope
+    ────────────────
+    ``document_ids``/``course_id``/``jurisdiction`` restrict every retrieval
+    call to this document set/course/jurisdiction rather than the full shared
+    index. When not passed explicitly, they fall back to the matching keys on
+    ``course_spec`` (if present) so legacy callers keep working unfiltered.
+
+    ``document_ids`` (the ingestion-time document identifiers, always written
+    onto every indexed chunk) is preferred over ``course_id`` for scoping:
+    ``course_id`` is optional at upload time and can be silently populated
+    with an unrelated slugified course-topic folder name rather than the real
+    course id (see document_upload_service.upload_document), so filtering on
+    it can silently return zero chunks. When ``document_ids`` is supplied,
+    ``build_scope_filter`` drops ``course_id`` from the filter rather than
+    AND-ing an unreliable clause onto a reliable one.
+
+    Note: ``run_id`` is accepted for logging/traceability only and is
+    intentionally NOT included in the Azure AI Search scope filter — the
+    ingestion pipeline does not currently write ``run_id`` onto indexed
+    chunks, so a ``run_id eq '<value>'`` filter clause always matches zero
+    documents and silently breaks retrieval.
     """
+    course_id = course_id or course_spec.get("course_id") or None
+    document_ids = document_ids or course_spec.get("document_ids") or None
+    run_id = run_id or course_spec.get("run_id") or None
+    jurisdiction = jurisdiction or course_spec.get("jurisdiction") or None
+
     spec_sections = course_spec.get("sections", [])
     to_sections = outline.get("sections", [])
 
@@ -296,6 +340,10 @@ def map_sections(course_spec: dict, outline: dict) -> list[dict]:
         "breakdown (Format 1)" if is_breakdown else "flat (Format 2)",
         len(to_sections),
         len(spec_sections),
+    )
+    logger.info(
+        "[SectionMapper] Retrieval scope: document_ids=%s course_id=%s run_id=%s jurisdiction=%s",
+        document_ids, course_id, run_id, jurisdiction,
     )
 
     # Propagate objective indices and images from A1 course_spec.
@@ -351,6 +399,9 @@ def map_sections(course_spec: dict, outline: dict) -> list[dict]:
                 lesson_objectives=lesson_objectives,
                 spec_learning_objectives=spec_lo_strings,
                 source_files=lesson_source_files or None,
+                course_id=course_id,
+                document_ids=document_ids,
+                jurisdiction=jurisdiction,
             )
 
         lesson_ie = _strip_disabled_interactive_elements(

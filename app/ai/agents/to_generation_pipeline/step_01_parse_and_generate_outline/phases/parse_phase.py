@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-import shutil
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -14,7 +13,6 @@ from ..shared.constants.pipeline_config import (
     DEFAULT_SOURCE_LABEL,
     PARSE_CONTENT_SAMPLE_CHARS,
 )
-from ..shared.helpers.output_slug import OutputSlugResolver
 from .base_phase import BasePipelinePhase
 
 if TYPE_CHECKING:
@@ -38,7 +36,6 @@ class ParsePhaseResult:
     heading_map: list[tuple[int, str, int, str]]
     heading_tree: list[dict]
     pdf_heading_tree: list[dict]
-    doc_dir: Path
     images: list[dict]
     to_is_json: bool
 
@@ -173,9 +170,7 @@ class ParsePhase(BasePipelinePhase):
         )
 
         synth._check_cancelled()
-        doc_dir = self._prepare_output_dir()
-        self._persist_input_files(doc_dir, to_is_json)
-        images = self._extract_images(doc_dir, parser, pdf_parser, pdf_heading_tree)
+        images = self._extract_images(parser, pdf_parser, pdf_heading_tree)
 
         return ParsePhaseResult(
             parser=parser,
@@ -191,7 +186,6 @@ class ParsePhase(BasePipelinePhase):
             heading_map=heading_map,
             heading_tree=heading_tree,
             pdf_heading_tree=pdf_heading_tree,
-            doc_dir=doc_dir,
             images=images,
             to_is_json=to_is_json,
         )
@@ -354,56 +348,13 @@ class ParsePhase(BasePipelinePhase):
                 )
         print("=" * 80 + "\n", flush=True)
 
-    def _prepare_output_dir(self) -> Path:
-        synth = self._synth
-        stem = OutputSlugResolver.resolve(
-            course_output_slug=synth.course_output_slug,
-            docx_paths=synth.docx_paths,
-            pdf_paths=synth.pdf_paths,
-            run_id=synth.run_id,
-        )
-        doc_dir = synth.output_dir / stem
-        doc_dir.mkdir(parents=True, exist_ok=True)
-        (doc_dir / "doc").mkdir(parents=True, exist_ok=True)
-        return doc_dir
-
-    def _persist_input_files(self, doc_dir: Path, to_is_json: bool) -> None:
-        synth = self._synth
-        input_docs_dir = doc_dir / "doc"
-        persisted_inputs: list[str] = []
-        for src_path in [*synth.docx_paths, *synth.pdf_paths]:
-            src = Path(src_path)
-            if not src.exists() or not src.is_file():
-                continue
-            dest = input_docs_dir / src.name
-            if not dest.exists():
-                shutil.copy2(src, dest)
-                persisted_inputs.append(dest.name)
-
-        if synth.to_outline_doc_path and not to_is_json:
-            to_src = Path(synth.to_outline_doc_path)
-            if to_src.exists() and to_src.is_file():
-                dest = input_docs_dir / to_src.name
-                if not dest.exists():
-                    shutil.copy2(to_src, dest)
-                    persisted_inputs.append(dest.name)
-
-        if persisted_inputs:
-            logger.info(
-                "[A0] Persisted %s input file(s) -> %s",
-                len(persisted_inputs),
-                input_docs_dir,
-            )
-
     def _extract_images(
         self,
-        doc_dir: Path,
         parser: Any,
         pdf_parser: Any,
         pdf_heading_tree: list[dict],
     ) -> list[dict]:
         synth = self._synth
-        images_dir = doc_dir / "images"
         images: list[dict] = []
         synth._emit_step("Extracting source images and preparing prompts…")
         logger.info("[A0] Image extraction is disabled — skipping.")
@@ -421,7 +372,6 @@ class ParsePhase(BasePipelinePhase):
         #             heading_anchors=pdf_heading_tree if pdf_heading_tree else None,
         #         )
         #     )
-        logger.info("[A0] Extracted %s images -> %s", len(images), images_dir)
         images = filter_stored_image_records(images)
         logger.info("[A0] Retained %s valid image record(s) after validation.", len(images))
         return images

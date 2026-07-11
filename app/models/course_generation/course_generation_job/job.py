@@ -8,7 +8,7 @@ from sqlalchemy import DateTime, ForeignKey, Identity, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
-from app.models.course_generation.course_generation_job.constants import JOB_STATUS_QUEUED
+from app.models.course_generation.course_generation_job.constants import JOB_STATUS_PENDING
 
 
 class CourseGenerationJob(Base):
@@ -16,15 +16,15 @@ class CourseGenerationJob(Base):
 
     __tablename__ = "course_generation_jobs"
 
-    id: Mapped[str] = mapped_column(String(64), primary_key=True)
-    course_run_id: Mapped[str] = mapped_column(
-        String(64), ForeignKey("course_runs.id"), nullable=False
+    id: Mapped[int] = mapped_column(Integer, Identity(start=1, increment=1), primary_key=True)
+    course_run_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("course_runs.id"), nullable=False
     )
     status_code: Mapped[str] = mapped_column(
         String(50),
         ForeignKey("course_generation_job_status.code"),
         nullable=False,
-        default=JOB_STATUS_QUEUED,
+        default=JOB_STATUS_PENDING,
     )
     requested_by: Mapped[str] = mapped_column(String(255), nullable=False, default="system")
     shared_state_blob_path: Mapped[str | None] = mapped_column(String(1024), nullable=True)

@@ -229,6 +229,7 @@ class RetrievalTrace:
     error: Optional[str] = None
     source_refs: List[str] = field(default_factory=list)
     metadata: dict = field(default_factory=dict)
+    filters_applied: Optional[dict] = None
     timestamp: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     run_id: str = field(default_factory=get_run_id)
     doc_name: str = field(default_factory=get_doc_name)
@@ -652,6 +653,7 @@ def write_retrieval_trace(trace: RetrievalTrace) -> None:
         "document_id": trace.document_id,
         "source_refs": trace.source_refs,
         "metadata": trace.metadata,
+        "filters_applied": trace.filters_applied,
         "error": trace.error,
     }
     with _write_lock:

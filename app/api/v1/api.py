@@ -11,7 +11,6 @@ from __future__ import annotations
 from fastapi import APIRouter
 
 from app.api.v1.endpoints import health, storage
-from app.api.v1.endpoints import health
 from app.api.v1.endpoints.onboarding import (
     course_basic,
     course_run,

@@ -1,6 +1,5 @@
 """Central configuration for the parse-and-generate-outline pipeline."""
 
-DEFAULT_OUTPUT_DIR = "shared_state"
 DEFAULT_COURSE_TITLE = "Course"
 DEFAULT_DIFFICULTY = "intermediate"
 DEFAULT_SOURCE_LABEL = "source"

@@ -11,8 +11,8 @@ class CourseGenerationValidationRunData(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
-    job_id: str
-    course_run_id: str
+    job_id: int
+    course_run_id: int
     validation_type: str
     attempt_number: int
     status: str

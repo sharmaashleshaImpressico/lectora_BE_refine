@@ -16,11 +16,11 @@ class CourseGenerationValidationRun(Base):
     __tablename__ = "course_generation_validation_runs"
 
     id: Mapped[int] = mapped_column(Integer, Identity(start=1, increment=1), primary_key=True)
-    job_id: Mapped[str] = mapped_column(
-        String(64), ForeignKey("course_generation_jobs.id"), nullable=False
+    job_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("course_generation_jobs.id"), nullable=False
     )
-    course_run_id: Mapped[str] = mapped_column(
-        String(64), ForeignKey("course_runs.id"), nullable=False
+    course_run_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("course_runs.id"), nullable=False
     )
     validation_type: Mapped[str] = mapped_column(String(100), nullable=False)
     attempt_number: Mapped[int] = mapped_column(Integer, nullable=False, default=1)

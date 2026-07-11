@@ -53,7 +53,7 @@ class CourseGenerationWorker:
 
     def _handle_message(self, message: CourseGenerationJobMessage) -> None:
         # Import here to avoid a service_bus -> services -> service_bus cycle at module load.
-        from app.services.course_generation.pipeline_runner import (
+        from app.services.onboarding.course_generation.pipeline_runner import (
             CourseGenerationPipelineRunner,
         )
 

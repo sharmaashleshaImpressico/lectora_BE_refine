@@ -14,13 +14,14 @@ import logging
 
 from sqlalchemy.orm import Session
 
-from app.core.storage.blob_file_resolver import resolve_source_path
+from app.core.storage.blob_file_resolver import BlobResolutionError, resolve_source_path
 from app.models.onboarding.course_run.course_run_input import CourseRunInput
 from app.orchestrators.content_generation.orchestrator import ContentGenerationInput
 from app.repositories.course_basic.course_repository import CourseRepository
 from app.repositories.course_run.course_run_input_repository import CourseRunInputRepository
 from app.repositories.course_run.course_run_repository import CourseRunRepository
 from app.repositories.course_run.course_run_spec_repository import CourseRunSpecRepository
+from app.services.onboarding.course_generation.artifact_service import ArtifactsBlobClient
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +30,10 @@ DOCX_INPUT_TYPES = {"source_document", "study_guide", "docx"}
 
 class CourseRunNotFoundError(Exception):
     """Raised when the course run referenced by a job no longer exists."""
+
+
+class MissingTrainingOutlineError(Exception):
+    """Raised when a course run has no usable Training Outline to generate from."""
 
 
 class CourseGenerationDataLoader:
@@ -51,7 +56,15 @@ class CourseGenerationDataLoader:
         inputs = self.input_repository.list_by_course_run(course_run_id)
 
         learning_objectives = _parse_json_list(spec.learning_objectives_json if spec else None)
-        outline = self._load_outline(spec.uploaded_outline_blob_path if spec else None)
+        outline_blob_path = spec.uploaded_outline_blob_path if spec else None
+        outline = self._load_outline(outline_blob_path)
+        if not outline.get("sections"):
+            raise MissingTrainingOutlineError(
+                f"Course run '{course_run_id}' has no usable Training Outline — "
+                f"uploaded_outline_blob_path={outline_blob_path!r} could not be resolved to an "
+                "outline with sections. Either supply `training_outline` when creating the "
+                "generation job, or ensure a valid outline blob exists at that path."
+            )
         docx_path = self._resolve_docx_path(inputs)
 
         return ContentGenerationInput(
@@ -68,18 +81,58 @@ class CourseGenerationDataLoader:
             course_config=_spec_to_dict(spec),
             source_file_specs=[_input_to_spec(item) for item in inputs],
             output_path=output_path,
+            # Section Mapper retrieval filters indexed chunks by `course_id`, but the
+            # ingestion pipeline stores `course_id` as the *upload folder slug*
+            # (document_upload_service sets `course_id = course_id or folder`, and the
+            # FE upload path sends no course_id). The numeric course PK therefore never
+            # matches any stored chunk and would filter every vector query to zero
+            # results. Recover the folder slug the ingestion actually wrote — it is the
+            # first path segment of each input's blob_path — so retrieval scopes to the
+            # same value both modules agree on.
+            course_id=_resolve_ingest_scope_course_id(inputs),
+            # Not yet a persisted column on CourseRunSpec — resolves to None until
+            # jurisdiction/state is added there; retrieval degrades gracefully.
+            jurisdiction=getattr(spec, "jurisdiction", None) if spec else None,
         )
 
     def _load_outline(self, blob_path: str | None) -> dict:
         if not blob_path:
             return {}
         try:
-            local_path = resolve_source_path(blob_path)
+            local_path = self._resolve_outline_path(blob_path)
             with open(local_path, "r", encoding="utf-8") as handle:
-                return json.load(handle)
+                data = json.load(handle)
         except Exception:
             logger.exception("[course_generation] Failed to load outline from %r", blob_path)
             return {}
+
+        # `generated_to.json` wraps the actual timed outline (with its
+        # `sections` key) under a `to` field, alongside sibling metadata
+        # (rules, rule_family_key, preview_artifacts, ...). `to_outline.json`
+        # (uploaded by the frontend-supplied-TO flow) wraps it under
+        # `llm_to_outline` instead. Unwrap either so callers (Section Mapper)
+        # see the outline shape they expect.
+        if isinstance(data, dict) and "sections" not in data:
+            if isinstance(data.get("to"), dict):
+                return data["to"]
+            if isinstance(data.get("llm_to_outline"), dict):
+                return data["llm_to_outline"]
+        return data
+
+    @staticmethod
+    def _resolve_outline_path(blob_path: str) -> str:
+        """Resolve an outline blob, trying the default container then the artifacts one.
+
+        `uploaded_outline_blob_path` historically pointed at the documents
+        container; the frontend-supplied-TO flow instead writes `to_outline.json`
+        into the `course-generation-artifacts` container. Try the default
+        resolution first (local file / documents container) and fall back to
+        the artifacts container so both sources work.
+        """
+        try:
+            return resolve_source_path(blob_path)
+        except BlobResolutionError:
+            return resolve_source_path(blob_path, blob_client=ArtifactsBlobClient())
 
     def _resolve_docx_path(self, inputs: list[CourseRunInput]) -> str:
         primary = next((item for item in inputs if item.input_type in DOCX_INPUT_TYPES), None)
@@ -91,6 +144,32 @@ class CourseGenerationDataLoader:
                 "No DOCX source input found for this course run — cannot start content generation."
             )
         return resolve_source_path(primary.blob_path)
+
+
+def _resolve_ingest_scope_course_id(inputs: list[CourseRunInput]) -> str | None:
+    """Recover the `course_id` value the ingestion pipeline stored on this run's chunks.
+
+    Ingestion writes ``course_id = course_id or folder`` (see
+    ``document_upload_service.upload_document``) and the wired FE upload path sends
+    no explicit course_id, so the stored value is the sanitized upload folder slug.
+    Uploaded blobs live at ``"{folder}/{filename}"``, so the folder is the first
+    path segment of each input's ``blob_path``.
+
+    Returns the shared folder slug when all inputs agree on one (the normal case:
+    a run's documents share a single course topic). Returns ``None`` when the folder
+    can't be determined unambiguously (no blob paths, or inputs spanning multiple
+    folders) — retrieval then searches the shared index unfiltered rather than being
+    scoped to a wrong value that would match zero chunks.
+    """
+    folders = {
+        (item.blob_path or "").split("/", 1)[0].strip()
+        for item in inputs
+        if item.blob_path and "/" in item.blob_path
+    }
+    folders.discard("")
+    if len(folders) == 1:
+        return next(iter(folders))
+    return None
 
 
 def _parse_json_list(raw: str | None) -> list[str]:

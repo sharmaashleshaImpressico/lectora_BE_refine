@@ -56,9 +56,6 @@ from app.ai.shared_llm_config.tracer import (
 logger = logging.getLogger(__name__)
 
 # Name of the Azure AI Search vector field used for chunk-content embeddings.
-# No ingestion service is wired up in this repo yet (see get_retriever()) — this
-# constant is kept for trace/logging labels and for parity with the search index
-# schema once ingestion is connected.
 EMBEDDING_CONTENT_VECTOR_FIELD = "embedding_content"
 
 # ── Constants ──────────────────────────────────────────────────────────────────
@@ -176,10 +173,14 @@ def _parse_search_results(
             similarity_score=round(score, 4),
             source_metadata={
                 "chunk_id":       r.get("chunk_id", ""),
+                "document_id":    r.get("document_id", ""),
                 "source_file":    r.get("source_file", ""),
                 "page_num":       r.get("page_num"),
                 "title":          r.get("title", ""),
                 "section_id":     r.get("section_id", ""),
+                "course_id":      r.get("course_id", ""),
+                "run_id":         r.get("run_id", ""),
+                "jurisdiction":   r.get("jurisdiction", ""),
                 "reranker_score": reranker_raw,
                 "vector_field":   EMBEDDING_CONTENT_VECTOR_FIELD,
             },
@@ -273,6 +274,29 @@ def _chunk_text_fingerprint(text: str) -> str:
     return " ".join(str(text or "").split()).lower()[:_TEXT_FINGERPRINT_CHARS]
 
 
+def _describe_filters(
+    *,
+    document_id: str | None = None,
+    document_ids: list[str] | None = None,
+    course_id: str | None = None,
+    run_id: str | None = None,
+    jurisdiction: str | None = None,
+) -> dict:
+    """Build a debug-friendly dict of the scope filters actually applied to a query."""
+    filters: dict = {}
+    if course_id:
+        filters["course_id"] = course_id
+    if run_id:
+        filters["run_id"] = run_id
+    if document_id:
+        filters["document_id"] = document_id
+    if document_ids:
+        filters["document_ids"] = list(document_ids)
+    if jurisdiction:
+        filters["jurisdiction"] = jurisdiction
+    return filters
+
+
 def _section_mapper_retrieval_options() -> tuple[int, int, bool, int]:
     """Retrieval tuning knobs — hardcoded defaults (no external settings source)."""
     return (_SUBTOPIC_TOP_K, _SUBTOPIC_SEARCH_TOP_K, False, 12000)
@@ -302,10 +326,14 @@ def _raw_record_to_vector_chunk(
         similarity_score=round(similarity_score, 4),
         source_metadata={
             "chunk_id":       record.get("chunk_id", ""),
+            "document_id":    record.get("document_id", ""),
             "source_file":    record.get("source_file", ""),
             "page_num":       record.get("page_num"),
             "title":          record.get("title", ""),
             "section_id":     record.get("section_id", ""),
+            "course_id":      record.get("course_id", ""),
+            "run_id":         record.get("run_id", ""),
+            "jurisdiction":   record.get("jurisdiction", ""),
             "reranker_score": reranker_raw,
             "vector_field":   EMBEDDING_CONTENT_VECTOR_FIELD,
         },
@@ -470,6 +498,10 @@ class VectorRetriever:
         document_id: str | None = None,
         top: int = _LESSON_TOP_K,
         source_files: list[str] | None = None,
+        document_ids: list[str] | None = None,
+        course_id: str | None = None,
+        run_id: str | None = None,
+        jurisdiction: str | None = None,
     ) -> list[VectorChunk]:
         """
         Fetch a broad candidate pool for an entire lesson.
@@ -486,10 +518,23 @@ class VectorRetriever:
         Returns VectorChunks above the adaptive threshold, sorted by score desc.
         """
         query = build_query(lesson_title, subtopic_titles, objectives)
-        logger.info(
-            "[vector_retriever] Lesson=%r  query=%r  document_id=%s  top=%d",
-            lesson_title[:50], query[:120], document_id, top,
+        filters_applied = _describe_filters(
+            document_id=document_id,
+            document_ids=document_ids,
+            course_id=course_id,
+            run_id=run_id,
+            jurisdiction=jurisdiction,
         )
+        logger.info(
+            "[vector_retriever] Lesson=%r  query=%r  top=%d  filters_applied=%s",
+            lesson_title[:50], query[:120], top, filters_applied,
+        )
+        if not filters_applied:
+            logger.warning(
+                "[vector_retriever] No scope filters for lesson=%r — retrieval "
+                "will search the entire shared index (unfiltered).",
+                lesson_title[:50],
+            )
 
         error_msg: str | None = None
         raw: list[dict] = []
@@ -499,6 +544,10 @@ class VectorRetriever:
                 topic=query,
                 document_id=document_id,
                 top=top,
+                document_ids=document_ids,
+                course_id=course_id,
+                run_id=run_id,
+                jurisdiction=jurisdiction,
             )
         except Exception as exc:
             error_msg = str(exc)
@@ -517,6 +566,7 @@ class VectorRetriever:
                     latency_ms=latency_ms,
                     document_id=document_id,
                     error=error_msg,
+                    filters_applied=filters_applied,
                     metadata={
                         "lesson_title": lesson_title[:120],
                         "top_k": top,
@@ -566,6 +616,7 @@ class VectorRetriever:
                 threshold=threshold,
                 has_semantic_ranker=has_reranker,
                 document_id=document_id,
+                filters_applied=filters_applied,
                 metadata={
                     "lesson_title": lesson_title[:120],
                     "raw_result_count": len(raw),
@@ -585,6 +636,10 @@ class VectorRetriever:
         document_id: str | None = None,
         top_per_subtopic: int = _SUBTOPIC_TOP_K,
         source_files: list[str] | None = None,
+        document_ids: list[str] | None = None,
+        course_id: str | None = None,
+        run_id: str | None = None,
+        jurisdiction: str | None = None,
     ) -> list[dict]:
         """
         Assign relevant chunks to each subtopic via targeted Azure AI Search retrieval.
@@ -622,13 +677,27 @@ class VectorRetriever:
         if top_per_subtopic != _SUBTOPIC_TOP_K:
             seed_count = top_per_subtopic
 
+        filters_applied = _describe_filters(
+            document_id=document_id,
+            document_ids=document_ids,
+            course_id=course_id,
+            run_id=run_id,
+            jurisdiction=jurisdiction,
+        )
+        if not filters_applied:
+            logger.warning(
+                "[vector_retriever] No scope filters for lesson=%r subtopics — "
+                "retrieval will search the entire shared index (unfiltered).",
+                lesson_title[:50],
+            )
+
         for sub in subtopics:
             sub_title = sub.get("title", "")
             query = _build_subtopic_query(sub_title, lesson_title)
 
             logger.debug(
-                "[vector_retriever] Subtopic=%r  query=%r  document_id=%s",
-                sub_title[:50], query[:120], document_id,
+                "[vector_retriever] Subtopic=%r  query=%r  filters_applied=%s",
+                sub_title[:50], query[:120], filters_applied,
             )
 
             raw_sub: list[dict] = []
@@ -639,6 +708,10 @@ class VectorRetriever:
                     subtopic_query=query,
                     document_id=document_id,
                     top=search_top_k,
+                    document_ids=document_ids,
+                    course_id=course_id,
+                    run_id=run_id,
+                    jurisdiction=jurisdiction,
                 )
             except Exception as exc:
                 error_msg = str(exc)
@@ -657,6 +730,7 @@ class VectorRetriever:
                         latency_ms=latency_ms,
                         document_id=document_id,
                         error=error_msg,
+                        filters_applied=filters_applied,
                         metadata={
                             "subtopic_title": sub_title[:120],
                             "lesson_title": lesson_title[:120],
@@ -696,6 +770,8 @@ class VectorRetriever:
                         len(ordered),
                     )
                 sub["matched_chunks"] = [c.as_dict() for c in selected]
+                sub["retrieval_query"] = query
+                sub["filters_applied"] = filters_applied
 
                 has_reranker = any(
                     c.source_metadata.get("reranker_score") is not None
@@ -726,6 +802,7 @@ class VectorRetriever:
                         threshold=threshold,
                         has_semantic_ranker=has_reranker,
                         document_id=document_id,
+                        filters_applied=filters_applied,
                         metadata={
                             "subtopic_title": sub_title[:120],
                             "lesson_title": lesson_title[:120],
@@ -736,6 +813,8 @@ class VectorRetriever:
                     pass
             else:
                 sub["matched_chunks"] = []
+                sub["retrieval_query"] = query
+                sub["filters_applied"] = filters_applied
                 logger.warning(
                     "[vector_retriever] Subtopic=%r returned 0 chunks from vector retrieval.",
                     sub_title[:50],
@@ -748,6 +827,7 @@ class VectorRetriever:
                         result_count=0,
                         latency_ms=0,
                         document_id=document_id,
+                        filters_applied=filters_applied,
                         metadata={
                             "subtopic_title": sub_title[:120],
                             "lesson_title": lesson_title[:120],
@@ -808,7 +888,7 @@ def get_retriever() -> VectorRetriever | None:
 
     _retriever_attempted = True
     try:
-        from lectora_backend.ingestion.service import IngestionOrchestrator
+        from app.ai.ingestion.service import IngestionOrchestrator
         service = IngestionOrchestrator.get_instance().build_retrieval_service()
         if service is None:
             logger.warning(

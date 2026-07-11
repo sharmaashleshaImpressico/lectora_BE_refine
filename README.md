@@ -166,8 +166,13 @@ Key properties this diagram highlights:
    ```
    The app initializes the DB schema on startup, seeds lookup tables (job
    status codes), starts the Service Bus worker if configured, and exposes
-   routes under `/health`, `/course-basic`, `/course-run`, and
-   `/course-runs/{id}/jobs` + `/jobs/{id}` (see `app/api/v1/api.py`).
+   routes under `/health`, `/course-basic`, `/course-runs` (+ specs/inputs/rule
+   overrides), `/generate-learning-objectives` + `/regenerate-learning-objectives`,
+   `/generate-recommended-topics`, `/generate-to` + `/regenerate-timed-outline`
+   + `/suggest-outline-structure`, `/documents/upload` +
+   `/documents/{id}/ingestion-status`, `/storage/uploaded-documents/browse`,
+   and `/course-runs/{id}/jobs` + `/jobs/{id}` (+ `/events`, cancel) — see
+   `app/api/v1/api.py`.
 
 ## Configuration notes
 
@@ -190,20 +195,19 @@ Key properties this diagram highlights:
 
 ## Known gaps
 
-- `app.orchestrators.topic_outline` is mid-fix: `app/ai/agents/to_generation_pipeline/`
-  still has a handful of leftover imports from the removed `lectora_backend`
-  package (course-id resolution, outline cleanup, learning-objective
-  normalization, and the timed-outline rule pack) that need native
-  replacements under `app/ai/shared_utils/` and `app/ai/rule_pack_config/`.
-- `app.orchestrators.content_generation`, `app.orchestrators.learning_objective`,
-  and `app.orchestrators.required_topics` all import cleanly today. The old
-  `content_generation_agent/pipeline.py` and `lesson_gate.py` (legacy,
-  file-based `shared_state.json` code tied to a "central orchestrator"
-  framework that no longer exists) have been removed — fully superseded by
-  `app.orchestrators.content_generation.ContentGenerationOrchestrator`.
+- `app.orchestrators.topic_outline`, `app.orchestrators.content_generation`,
+  `app.orchestrators.learning_objective`, and `app.orchestrators.required_topics`
+  all import cleanly today. The old `content_generation_agent/pipeline.py` and
+  `lesson_gate.py` (legacy, file-based `shared_state.json` code tied to a
+  "central orchestrator" framework that no longer exists) have been removed —
+  fully superseded by `app.orchestrators.content_generation.ContentGenerationOrchestrator`.
 - **API ↔ Pipeline wiring**: done. `POST /course-runs/{course_run_id}/jobs`
   queues a job via Azure Service Bus and a background worker invokes
   `ContentGenerationOrchestrator` — see "Content generation job flow" above.
-  Still open: a retry/resume endpoint that re-publishes a `FAILED` job's
-  message instead of creating a new job row, and a `by-course-slug` /
-  cancel-job path to match the frontend's `jobs/api.ts` client surface.
+  `GET /jobs/{job_id}` and `DELETE /jobs/{job_id}` (cancel) are implemented.
+  Still open, needed to match the frontend's `jobs/api.ts` client surface:
+  a `POST /jobs/{job_id}/retry` endpoint (re-publish a `FAILED` job's message
+  instead of creating a new job row) and a `GET /jobs/by-course-slug/{slug}`
+  lookup. The course-editor surface (AI section edits, section
+  reorder/delete, DOCX/Azure export) has no backend routes yet — the frontend
+  calls exist but 404 until those are added.

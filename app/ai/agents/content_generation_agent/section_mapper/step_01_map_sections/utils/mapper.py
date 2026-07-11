@@ -307,14 +307,12 @@ def map_sections(
     index. When not passed explicitly, they fall back to the matching keys on
     ``course_spec`` (if present) so legacy callers keep working unfiltered.
 
-    ``document_ids`` (the ingestion-time document identifiers, always written
-    onto every indexed chunk) is preferred over ``course_id`` for scoping:
-    ``course_id`` is optional at upload time and can be silently populated
-    with an unrelated slugified course-topic folder name rather than the real
-    course id (see document_upload_service.upload_document), so filtering on
-    it can silently return zero chunks. When ``document_ids`` is supplied,
-    ``build_scope_filter`` drops ``course_id`` from the filter rather than
-    AND-ing an unreliable clause onto a reliable one.
+    ``course_id`` and ``document_ids`` are applied *together*: every retrieval
+    call (lesson-level search, per-subtopic search, and section expansion)
+    AND-s both clauses, so only chunks indexed for this course AND this
+    document set are ever processed. For that to return results, the
+    ``course_id`` written at ingestion time must match the one supplied here
+    (see document_upload_service.upload_document).
 
     Note: ``run_id`` is accepted for logging/traceability only and is
     intentionally NOT included in the Azure AI Search scope filter — the

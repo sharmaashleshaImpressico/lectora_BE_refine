@@ -320,11 +320,28 @@ class CourseRetrievalService:
             top=top,
         )
 
-    def list_chunks_for_section(self, section_id: str, top: int = 50) -> list[dict]:
-        """Return all indexed chunks for one section (full section text, ordered)."""
+    def list_chunks_for_section(
+        self,
+        section_id: str,
+        top: int = 50,
+        *,
+        course_id: str | None = None,
+        document_ids: list[str] | None = None,
+    ) -> list[dict]:
+        """Return all indexed chunks for one section (full section text, ordered).
+
+        When ``course_id``/``document_ids`` are supplied they are AND-ed onto the
+        ``section_id`` clause so expansion never pulls chunks from another
+        course or document that happens to share a section id.
+        """
         safe_section_id = str(section_id or "").replace("'", "''")
         if not safe_section_id:
             return []
+
+        filter_clauses = [f"section_id eq '{safe_section_id}'"]
+        scope_filter = build_scope_filter(course_id=course_id, document_ids=document_ids)
+        if scope_filter:
+            filter_clauses.append(scope_filter)
 
         url = (
             f"{self._endpoint}/indexes/{self._index_name}/docs/search"
@@ -332,7 +349,7 @@ class CourseRetrievalService:
         )
         payload: dict = {
             "search": "*",
-            "filter": f"section_id eq '{safe_section_id}'",
+            "filter": " and ".join(filter_clauses),
             "top": top,
             "select": _DEFAULT_SELECT,
             "orderby": "chunk_id asc",

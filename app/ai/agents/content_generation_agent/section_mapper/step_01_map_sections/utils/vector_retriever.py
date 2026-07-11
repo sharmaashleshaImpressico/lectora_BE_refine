@@ -384,6 +384,8 @@ def _expand_matched_sections(
     seed_chunks: list[VectorChunk],
     *,
     max_words: int,
+    course_id: str | None = None,
+    document_ids: list[str] | None = None,
 ) -> list[VectorChunk]:
     """
     After vector search picks seed chunks, pull every indexed chunk for those
@@ -411,7 +413,11 @@ def _expand_matched_sections(
     }
 
     for section_id in section_ids:
-        raw_rows = service.list_chunks_for_section(section_id)
+        raw_rows = service.list_chunks_for_section(
+            section_id,
+            course_id=course_id,
+            document_ids=document_ids,
+        )
         for row in raw_rows:
             chunk_id = str(row.get("chunk_id") or "").strip()
             if chunk_id and chunk_id in seen_chunk_ids:
@@ -756,6 +762,8 @@ class VectorRetriever:
                         self._service,
                         seeds,
                         max_words=max_source_words,
+                        course_id=course_id,
+                        document_ids=document_ids,
                     )
                 else:
                     selected = _dedupe_within_subtopic(seeds)

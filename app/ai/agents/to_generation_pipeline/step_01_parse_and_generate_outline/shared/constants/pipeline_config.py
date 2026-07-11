@@ -1,6 +1,5 @@
 """Central configuration for the parse-and-generate-outline pipeline."""
 
-DEFAULT_OUTPUT_DIR = "shared_state"
 DEFAULT_COURSE_TITLE = "Course"
 DEFAULT_DIFFICULTY = "intermediate"
 DEFAULT_SOURCE_LABEL = "source"
@@ -15,7 +14,3 @@ TOC_WORD_BUDGET_PER_ENTRY = 40
 PDF_MIXED_OUTLINE_PROMPT_LIMIT = 200
 
 MULTI_SOURCE_SLUG_PREFIX = "multi_"
-
-ARTIFACT_REQUEST_SPEC = "request_spec.json"
-ARTIFACT_SHARED_STATE = "shared_state.json"
-ARTIFACT_LLM_TO_OUTLINE = "llm_to_outline.json"

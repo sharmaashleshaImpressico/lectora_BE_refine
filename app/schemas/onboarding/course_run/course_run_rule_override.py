@@ -24,6 +24,22 @@ class CourseRunRuleOverrideCreate(BaseModel):
         return value or DEFAULT_CREATED_BY
 
 
+class CourseRunRuleOverrideNestedCreate(BaseModel):
+    """Override fields accepted when nested inside `CourseRunCreate`.
+
+    Same as `CourseRunRuleOverrideCreate` minus `course_run_id`, which the
+    backend fills in itself once the parent run has been created.
+    """
+
+    rule_name: str = Field(..., min_length=1, max_length=255)
+    original_value_json: str | None = Field(default=None, description="Original rule value, serialized as JSON")
+    override_value_json: str | None = Field(default=None, description="Overridden rule value, serialized as JSON")
+    created_by: str | None = Field(default=None, max_length=255)
+
+    def to_create(self, course_run_id: str) -> "CourseRunRuleOverrideCreate":
+        return CourseRunRuleOverrideCreate(course_run_id=course_run_id, **self.model_dump())
+
+
 class CourseRunRuleOverrideData(BaseModel):
     """Course-run-rule-override record as returned to the frontend."""
 

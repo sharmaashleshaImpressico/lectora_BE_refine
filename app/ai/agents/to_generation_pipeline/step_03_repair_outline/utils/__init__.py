@@ -7,9 +7,6 @@ from app.ai.agents.to_generation_pipeline.step_03_repair_outline.utils.issues im
 from app.ai.agents.to_generation_pipeline.step_03_repair_outline.utils.message_builder import (
     RefinementMessageBuilder,
 )
-from app.ai.agents.to_generation_pipeline.step_03_repair_outline.utils.outline_persister import (
-    OutlinePersister,
-)
 from app.ai.agents.to_generation_pipeline.step_03_repair_outline.utils.response_parser import (
     RefinementResponseParser,
 )
@@ -20,7 +17,6 @@ from app.ai.agents.to_generation_pipeline.step_03_repair_outline.utils.section1 
 )
 
 __all__ = [
-    "OutlinePersister",
     "RefinementIssueFilter",
     "RefinementIssueGrouper",
     "RefinementMessageBuilder",

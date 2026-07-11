@@ -18,7 +18,6 @@ llm_to_outline.json for downstream agents.
 import logging
 import threading
 import uuid
-from pathlib import Path
 from typing import Callable, Optional, TYPE_CHECKING
 
 from semantic_kernel import Kernel
@@ -28,7 +27,7 @@ from ..shared.constants.difficulty import (
     DEFAULT_TO_DURATION_HOURS,
     compute_calculated_word_count,
 )
-from ..shared.constants.pipeline_config import DEFAULT_DIFFICULTY, DEFAULT_OUTPUT_DIR
+from ..shared.constants.pipeline_config import DEFAULT_DIFFICULTY
 from ..shared.helpers.output_slug import OutputSlugResolver
 from .classification_phase import ClassificationPhase
 from .finalization_phase import FinalizationPhase
@@ -53,8 +52,9 @@ class A0RequestSynthesizer:
       - If provided: parsed via LLM into structured outline JSON (Scenario 1).
       - If omitted: TO is generated from uploaded source files via LLM (Scenario 2).
 
-    Outputs: request_spec, provenance_log, shared_state, and llm_to_outline JSON
-    files written under `output_dir/{course_slug}/`.
+    Outputs: request_spec, provenance_log, shared_state, and llm_to_outline —
+    held in memory / persisted to Azure Blob Storage by callers, never to
+    local disk.
     """
 
     def __init__(
@@ -63,7 +63,6 @@ class A0RequestSynthesizer:
         docx_paths: Optional[list[str]] = None,
         pdf_paths: Optional[list[str]] = None,
         to_outline_doc_path: Optional[str] = None,
-        output_dir: str = DEFAULT_OUTPUT_DIR,
         course_difficulty: str = DEFAULT_DIFFICULTY,
         extra_text_contents: Optional[list[str]] = None,
         custom_to_prompt: Optional[str] = None,
@@ -129,8 +128,6 @@ class A0RequestSynthesizer:
                 resolved_to_outline = resolve_source_path(raw_to_outline)
 
         self.to_outline_doc_path = resolved_to_outline
-        self.output_dir = Path(output_dir)
-        self.output_dir.mkdir(parents=True, exist_ok=True)
         self.course_difficulty = (course_difficulty or DEFAULT_DIFFICULTY).strip().lower()
         self.run_id = str(uuid.uuid4())[:8]
         self.extra_text_contents: list[str] = extra_text_contents or []

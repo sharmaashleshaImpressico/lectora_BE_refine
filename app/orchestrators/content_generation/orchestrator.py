@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Protocol
 
 from semantic_kernel import Kernel
 
@@ -27,6 +27,44 @@ from app.ai.rule_pack_config import resolve_content_rule_pack_from_shared_state
 logger = logging.getLogger(__name__)
 
 _MAX_REPAIR_ATTEMPTS = 2
+
+
+class StageReporter(Protocol):
+    """Callback interface for surfacing pipeline stage progress to a caller.
+
+    Deliberately kernel/DB-agnostic — this orchestrator stays pure. A caller
+    (e.g. the Service Bus pipeline runner) supplies an adapter backed by
+    whatever progress-tracking store it uses.
+    """
+
+    def start(self, stage_code: str, message: str) -> None: ...
+    def complete(self, stage_code: str, message: str, *, outcome: str | None = None) -> None: ...
+    def retry(self, stage_code: str, message: str) -> None: ...
+    def fail(self, stage_code: str, message: str, *, blockers: list[dict[str, Any]] | None = None) -> None: ...
+
+
+class _NullStageReporter:
+    """No-op reporter used when a caller doesn't care about stage progress."""
+
+    def start(self, stage_code: str, message: str) -> None:
+        pass
+
+    def complete(self, stage_code: str, message: str, *, outcome: str | None = None) -> None:
+        pass
+
+    def retry(self, stage_code: str, message: str) -> None:
+        pass
+
+    def fail(self, stage_code: str, message: str, *, blockers: list[dict[str, Any]] | None = None) -> None:
+        pass
+
+
+def _issues_to_blockers(validation: S2ValidationReport) -> list[dict[str, Any]]:
+    return [
+        {"severity": issue.severity, "field": issue.field, "message": issue.message}
+        for issue in validation.issues
+        if issue.severity == "blocker"
+    ]
 
 
 def _is_blocked(validation: S2ValidationReport) -> bool:
@@ -52,6 +90,16 @@ class ContentGenerationInput:
     source_file_specs: list[dict[str, Any]] | None = None
     rule_family: str | None = None
     output_path: str | None = None
+    course_id: str | None = None
+    # Ingestion-time document identifiers for this course's uploaded source
+    # files. Always written onto every indexed chunk (unlike course_id, which
+    # is optional at upload time and can silently fall back to a slugified
+    # course-topic folder name — see document_upload_service.upload_document).
+    # Preferred over course_id for scoping section-mapper retrieval; None
+    # until the upload flow persists document_id back onto CourseRunInput
+    # (see Known Gaps in CLAUDE.md re: API <-> pipeline wiring).
+    document_ids: list[str] | None = None
+    jurisdiction: str | None = None
 
 
 @dataclass
@@ -87,7 +135,10 @@ class ContentGenerationOrchestrator:
     def __init__(self, kernel: Kernel) -> None:
         self.kernel = kernel
 
-    def execute(self, spec: ContentGenerationInput) -> ContentGenerationResult:
+    def execute(
+        self, spec: ContentGenerationInput, *, on_stage: StageReporter | None = None
+    ) -> ContentGenerationResult:
+        reporter = on_stage or _NullStageReporter()
         logger.info(
             "[content_generation] Starting | title=%r | difficulty=%r",
             spec.course_title,
@@ -95,9 +146,24 @@ class ContentGenerationOrchestrator:
         )
 
         # Step 1: Section Mapper — maps the TO outline onto course_spec content.
-        enriched_sections = map_sections(spec.course_spec, spec.outline)
+        reporter.start(
+            "SECTION_MAPPER", "Section Mapper running — retrieving source content for each section…"
+        )
+        enriched_sections = map_sections(
+            spec.course_spec,
+            spec.outline,
+            course_id=spec.course_id,
+            document_ids=spec.document_ids,
+            run_id=spec.run_id,
+            jurisdiction=spec.jurisdiction,
+        )
+        reporter.complete(
+            "SECTION_MAPPER",
+            f"Sections mapped to source content ({len(enriched_sections)} lesson(s)).",
+        )
 
         # Step 2: Generate content (A2)
+        reporter.start("A2", "Generating course content for each lesson…")
         current_a2 = generate_course_content(
             self.kernel,
             run_id=spec.run_id,
@@ -112,6 +178,9 @@ class ContentGenerationOrchestrator:
             special_instructions=spec.special_instructions,
             course_config=spec.course_config,
             source_file_specs=spec.source_file_specs,
+        )
+        reporter.complete(
+            "A2", f"Course content generated for {len(current_a2.sections)} section(s)."
         )
 
         rule_pack = resolve_content_rule_pack_from_shared_state(
@@ -131,6 +200,7 @@ class ContentGenerationOrchestrator:
         }
 
         # Step 3: Initial validation (S2)
+        reporter.start("S2", "Running validation & quality checks on the generated content…")
         validation = validate_content(
             self.kernel,
             sections=current_a2.sections,
@@ -142,6 +212,7 @@ class ContentGenerationOrchestrator:
         )
 
         if not _is_blocked(validation):
+            reporter.complete("S2", "Content validated successfully.", outcome="PASS")
             return ContentGenerationResult(
                 enriched_sections=enriched_sections,
                 a2=current_a2,
@@ -149,7 +220,7 @@ class ContentGenerationOrchestrator:
                 validation_passed=True,
                 repair_attempts=0,
                 blocked=False,
-                study_guide_path=self._maybe_render(current_a2, spec),
+                study_guide_path=self._maybe_render(current_a2, spec, reporter),
             )
 
         # Step 4: Repair loop
@@ -159,6 +230,11 @@ class ContentGenerationOrchestrator:
                 attempt,
                 _MAX_REPAIR_ATTEMPTS,
                 validation.blockers,
+            )
+            reporter.retry(
+                "S2",
+                f"Found {validation.blockers} blocker(s) — refining content "
+                f"(attempt {attempt}/{_MAX_REPAIR_ATTEMPTS})…",
             )
 
             current_a2 = refine_sections(
@@ -179,6 +255,7 @@ class ContentGenerationOrchestrator:
             )
 
             if not _is_blocked(validation):
+                reporter.complete("S2", "Content validated successfully after refinement.", outcome="PASS")
                 return ContentGenerationResult(
                     enriched_sections=enriched_sections,
                     a2=current_a2,
@@ -186,9 +263,14 @@ class ContentGenerationOrchestrator:
                     validation_passed=True,
                     repair_attempts=attempt,
                     blocked=False,
-                    study_guide_path=self._maybe_render(current_a2, spec),
+                    study_guide_path=self._maybe_render(current_a2, spec, reporter),
                 )
 
+        reporter.fail(
+            "S2",
+            f"Content validation still blocked after {_MAX_REPAIR_ATTEMPTS} repair attempt(s).",
+            blockers=_issues_to_blockers(validation),
+        )
         return ContentGenerationResult(
             enriched_sections=enriched_sections,
             a2=current_a2,
@@ -199,7 +281,15 @@ class ContentGenerationOrchestrator:
             study_guide_path=None,
         )
 
-    def _maybe_render(self, a2_output: A2Output, spec: ContentGenerationInput) -> str | None:
+    def _maybe_render(
+        self,
+        a2_output: A2Output,
+        spec: ContentGenerationInput,
+        reporter: StageReporter,
+    ) -> str | None:
         if not spec.output_path:
             return None
-        return render_study_guide(a2_output, spec.learning_objectives, spec.output_path)
+        reporter.start("A6", "Packaging your course — assembling the final study guide…")
+        path = render_study_guide(a2_output, spec.learning_objectives, spec.output_path)
+        reporter.complete("A6", "Course packaged and ready.")
+        return path

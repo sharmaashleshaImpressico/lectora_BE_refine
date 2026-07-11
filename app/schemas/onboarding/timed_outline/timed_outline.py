@@ -49,7 +49,10 @@ class RegenerateTimedOutlineRequest(BaseModel):
     """Payload accepted from the frontend for revising an existing TO in place."""
 
     currentTo: dict[str, Any] = Field(..., description="Existing Training Outline JSON to revise")
-    regenerationPrompt: str = Field(..., min_length=1)
+    regenerationPrompt: str | None = Field(
+        default=None,
+        description="Free-text revision instructions; omit to leave the outline unchanged",
+    )
     preferredChapters: int | None = None
     lessonStyle: str | None = None
 

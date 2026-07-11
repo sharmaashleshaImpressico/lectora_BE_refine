@@ -1,8 +1,7 @@
-"""Step 01 — Load shared state written by A0."""
+"""Step 01 — Load in-memory shared state produced by A0."""
 
 from __future__ import annotations
 
-import json
 import logging
 
 from ...nodes.base_node import BaseA1Node
@@ -14,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 
 class SharedStateLoader(BaseA1Node):
-    """Reads A0 shared state and prepares it for downstream A1 steps."""
+    """Reads A0's in-memory shared state and prepares it for downstream A1 steps."""
 
     def __init__(self, outline_parser: LlmOutlineSectionParser | None = None) -> None:
         self._outline_parser = outline_parser or LlmOutlineSectionParser()
@@ -22,8 +21,7 @@ class SharedStateLoader(BaseA1Node):
     def execute(self, state: A1State) -> A1State:
         logger.info("[A1] Loading A0 shared state...")
         try:
-            with open(state["shared_state_path"]) as handle:
-                data = json.load(handle)
+            data = dict(state["a0_shared_state"])
 
             if state.get("prefer_a0_outline"):
                 data = self._outline_parser.sync_extracted_inputs(data)

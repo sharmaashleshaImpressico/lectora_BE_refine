@@ -115,13 +115,6 @@ class SharedState(BaseModel):
     agent_outputs: AgentOutputSlots = Field(default_factory=AgentOutputSlots)
 
 
-class A0OutputFiles(BaseModel):
-    request_spec: str
-    provenance_log: str
-    shared_state: str
-    llm_to_outline: str
-
-
 class A0Result(BaseModel):
     """Final return value of ``A0RequestSynthesizer.run()``."""
 
@@ -129,9 +122,7 @@ class A0Result(BaseModel):
 
     request_spec: RequestSpec
     provenance_log: dict[str, ProvenanceEntry] = Field(default_factory=dict)
-    shared_state_path: str
     shared_state: dict[str, Any] = Field(default_factory=dict)
-    output_files: A0OutputFiles
     llm_to_outline: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -177,7 +168,6 @@ class S1ValidationReport(BaseModel):
     blockers: int = 0
     warnings: int = 0
     infos: int = 0
-    report_path: str | None = None
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -231,7 +221,6 @@ class A1Output(BaseModel):
 
 
 __all__ = [
-    "A0OutputFiles",
     "A0Result",
     "A1Output",
     "A1Status",

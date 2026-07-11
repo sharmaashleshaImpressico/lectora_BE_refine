@@ -69,6 +69,15 @@ class AzureBlobClient:
             self.container_name,
         )
 
+    def exists(self, blob_path: str) -> bool:
+        """Return True if a blob already exists at `blob_path` in the configured container."""
+        blob_client = (
+            self._service_client()
+            .get_container_client(self.container_name)
+            .get_blob_client(blob_path)
+        )
+        return blob_client.exists()
+
     def download_bytes(self, blob_path: str) -> bytes:
         """Download a blob's raw bytes from the configured container."""
         blob_client = (
@@ -134,6 +143,10 @@ class LocalUploadStore:
     def resolve(self, blob_path: str) -> Path:
         """Return the local filesystem path that mirrors `blob_path` under the upload root."""
         return self._root / blob_path
+
+    def exists(self, blob_path: str) -> bool:
+        """Return True if a file already exists at `blob_path` under the local upload root."""
+        return self.resolve(blob_path).is_file()
 
     def list_entries(self, prefix: str) -> list[StorageEntryData]:
         """List immediate folders/files under `prefix` (non-recursive), mirroring blob paths."""

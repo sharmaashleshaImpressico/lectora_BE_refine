@@ -10,7 +10,12 @@ from pydantic import BaseModel, ConfigDict, Field
 class CourseRunSpecCreate(BaseModel):
     """Payload accepted from the frontend. `id` is never supplied here."""
 
-    course_run_id: int = Field(..., description="Id of the course run this spec belongs to")
+    course_run_id: str = Field(
+        ...,
+        min_length=1,
+        max_length=64,
+        description="Id of the course run this spec belongs to",
+    )
     course_scope: str | None = None
     duration_hours: float | None = None
     difficulty_level: str | None = Field(default=None, max_length=100)
@@ -31,6 +36,38 @@ class CourseRunSpecCreate(BaseModel):
     rule_pack_version: str | None = Field(default=None, max_length=100)
     effective_rule_pack_blob_path: str | None = Field(default=None, max_length=512)
     outline_notes: str | None = None
+
+
+class CourseRunSpecNestedCreate(BaseModel):
+    """Spec fields accepted when nested inside `CourseRunCreate`.
+
+    Same as `CourseRunSpecCreate` minus `course_run_id`, which the backend
+    fills in itself once the parent run has been created.
+    """
+
+    course_scope: str | None = None
+    duration_hours: float | None = None
+    difficulty_level: str | None = Field(default=None, max_length=100)
+    target_audience: str | None = None
+    learner_experience_level: str | None = Field(default=None, max_length=100)
+    learner_outcomes: str | None = None
+    required_topics_json: str | None = None
+    learning_objectives_json: str | None = None
+    tone: str | None = Field(default=None, max_length=255)
+    depth: str | None = Field(default=None, max_length=100)
+    emphasis: str | None = None
+    avoid_instructions: str | None = None
+    include_case_studies: bool | None = None
+    include_examples: bool | None = None
+    course_structure_mode: str | None = Field(default=None, max_length=100)
+    uploaded_outline_blob_path: str | None = Field(default=None, max_length=512)
+    rule_pack_id: str | None = Field(default=None, max_length=255)
+    rule_pack_version: str | None = Field(default=None, max_length=100)
+    effective_rule_pack_blob_path: str | None = Field(default=None, max_length=512)
+    outline_notes: str | None = None
+
+    def to_create(self, course_run_id: str) -> "CourseRunSpecCreate":
+        return CourseRunSpecCreate(course_run_id=course_run_id, **self.model_dump())
 
 
 class CourseRunSpecData(BaseModel):

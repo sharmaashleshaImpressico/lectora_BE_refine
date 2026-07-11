@@ -224,7 +224,11 @@ async def _ingest_document(
     except Exception as exc:
         logger.exception(
             "[upload] Ingestion failed for document_id=%s", document_id)
-        set_status(document_id, "failed", error=str(exc))
+        # IngestionError (raised once embedding/chunking succeeded but the
+        # Azure Search upload failed) carries the real chunk count so the
+        # status doesn't misreport total_chunks=0 for a partially-successful run.
+        total_chunks = getattr(exc, "total_chunks", 0)
+        set_status(document_id, "failed", total_chunks=total_chunks, error=str(exc))
     finally:
         if tmp_path:
             Path(tmp_path).unlink(missing_ok=True)

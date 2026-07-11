@@ -57,7 +57,11 @@ class AzureSQLSettings(BaseSettings):
             f"DATABASE={self.azure_sql_database};"
             f"UID={self.azure_sql_username};"
             f"PWD={self.azure_sql_password};"
-            "Encrypt=yes;TrustServerCertificate=no;Connection Timeout=30;"
+            # Encrypt is mandatory for Azure SQL. Connection Timeout is generous
+            # because the gateway login handshake can take several seconds over a
+            # slow/remote network — a shorter value surfaces as an HYT00 "Login
+            # timeout expired" even though the credentials are valid.
+            "Encrypt=yes;TrustServerCertificate=no;Connection Timeout=60;"
         )
         return f"mssql+pyodbc:///?odbc_connect={quote_plus(odbc_params)}"
 
@@ -97,7 +101,6 @@ class AzureStorageSettings(BaseSettings):
     # Kept separate from `blob_container_name`, which `.env` may point at a
     # different container used for shared-state / pipeline artifacts.
     uploaded_documents_container_name: str = "uploaded-documents"
-    shared_state_backend: str = "auto"
     course_generation_artifacts_container_name: str = "course-generation-artifacts"
     local_upload_root: str = "data/uploads"
 

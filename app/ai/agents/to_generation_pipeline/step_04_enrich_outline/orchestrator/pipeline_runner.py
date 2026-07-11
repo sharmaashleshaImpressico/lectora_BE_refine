@@ -7,7 +7,13 @@ from typing import Any
 
 from semantic_kernel import Kernel
 
-from app.ai.agents.to_generation_pipeline.models import A1Output, A1Status, CourseSpec, Inconsistency
+from app.ai.agents.to_generation_pipeline.models import (
+    A0Result,
+    A1Output,
+    A1Status,
+    CourseSpec,
+    Inconsistency,
+)
 
 from ..shared.models.state import A1State
 from .graph_builder import A1GraphBuilder
@@ -22,7 +28,7 @@ class A1PipelineRunner:
 
     def run(
         self,
-        shared_state_path: str,
+        a0_result: A0Result,
         docx_path: str,
         feedback: dict[str, Any] | None = None,
         *,
@@ -30,7 +36,7 @@ class A1PipelineRunner:
     ) -> A1Output:
         app = self._graph_builder.build()
         initial: A1State = {
-            "shared_state_path": shared_state_path,
+            "a0_shared_state": a0_result.shared_state,
             "docx_path": docx_path,
             "run_id": "",
             "a0_data": {},
@@ -76,7 +82,7 @@ class A1PipelineRunner:
 
 def run(
     kernel: Kernel,
-    shared_state_path: str,
+    a0_result: A0Result,
     docx_path: str,
     feedback: dict[str, Any] | None = None,
     *,
@@ -84,7 +90,7 @@ def run(
 ) -> A1Output:
     """Run the A1 LangGraph and return a typed A1Output."""
     return A1PipelineRunner(kernel).run(
-        shared_state_path,
+        a0_result,
         docx_path,
         feedback,
         prefer_a0_outline=prefer_a0_outline,

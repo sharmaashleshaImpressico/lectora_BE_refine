@@ -182,7 +182,6 @@ class ContentGenerationOrchestrator:
             spec.outline,
             course_id=spec.course_id,
             document_ids=spec.document_ids,
-            run_id=spec.run_id,
             jurisdiction=spec.jurisdiction,
         )
         reporter.complete(

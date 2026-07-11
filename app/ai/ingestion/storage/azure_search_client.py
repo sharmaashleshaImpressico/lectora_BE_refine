@@ -366,7 +366,6 @@ class AzureSearchIngestionClient:
 
 _METADATA_STRING_FIELDS = (
     "course_id",
-    "run_id",
     "jurisdiction",
     "source_type",
     "source_priority",

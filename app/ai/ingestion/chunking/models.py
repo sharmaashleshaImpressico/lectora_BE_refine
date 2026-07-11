@@ -54,7 +54,6 @@ class CourseChunk(BaseModel):
     searchable_text: str = ""
     embedding_content: list[float] | None = None
     course_id: str | None = None
-    run_id: str | None = None
     jurisdiction: str | None = None
     source_type: str | None = None
     source_priority: str | None = None

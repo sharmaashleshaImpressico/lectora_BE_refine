@@ -69,13 +69,6 @@ def get_index_definition(index_name: str) -> dict:
                 "searchable": False,
             },
             {
-                "name": "run_id",
-                "type": "Edm.String",
-                "filterable": True,
-                "retrievable": True,
-                "searchable": False,
-            },
-            {
                 "name": "jurisdiction",
                 "type": "Edm.String",
                 "filterable": True,

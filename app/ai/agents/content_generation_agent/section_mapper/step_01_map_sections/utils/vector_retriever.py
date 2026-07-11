@@ -179,7 +179,6 @@ def _parse_search_results(
                 "title":          r.get("title", ""),
                 "section_id":     r.get("section_id", ""),
                 "course_id":      r.get("course_id", ""),
-                "run_id":         r.get("run_id", ""),
                 "jurisdiction":   r.get("jurisdiction", ""),
                 "reranker_score": reranker_raw,
                 "vector_field":   EMBEDDING_CONTENT_VECTOR_FIELD,
@@ -279,15 +278,12 @@ def _describe_filters(
     document_id: str | None = None,
     document_ids: list[str] | None = None,
     course_id: str | None = None,
-    run_id: str | None = None,
     jurisdiction: str | None = None,
 ) -> dict:
     """Build a debug-friendly dict of the scope filters actually applied to a query."""
     filters: dict = {}
     if course_id:
         filters["course_id"] = course_id
-    if run_id:
-        filters["run_id"] = run_id
     if document_id:
         filters["document_id"] = document_id
     if document_ids:
@@ -332,7 +328,6 @@ def _raw_record_to_vector_chunk(
             "title":          record.get("title", ""),
             "section_id":     record.get("section_id", ""),
             "course_id":      record.get("course_id", ""),
-            "run_id":         record.get("run_id", ""),
             "jurisdiction":   record.get("jurisdiction", ""),
             "reranker_score": reranker_raw,
             "vector_field":   EMBEDDING_CONTENT_VECTOR_FIELD,
@@ -506,7 +501,6 @@ class VectorRetriever:
         source_files: list[str] | None = None,
         document_ids: list[str] | None = None,
         course_id: str | None = None,
-        run_id: str | None = None,
         jurisdiction: str | None = None,
     ) -> list[VectorChunk]:
         """
@@ -528,7 +522,6 @@ class VectorRetriever:
             document_id=document_id,
             document_ids=document_ids,
             course_id=course_id,
-            run_id=run_id,
             jurisdiction=jurisdiction,
         )
         logger.info(
@@ -552,7 +545,6 @@ class VectorRetriever:
                 top=top,
                 document_ids=document_ids,
                 course_id=course_id,
-                run_id=run_id,
                 jurisdiction=jurisdiction,
             )
         except Exception as exc:
@@ -644,7 +636,6 @@ class VectorRetriever:
         source_files: list[str] | None = None,
         document_ids: list[str] | None = None,
         course_id: str | None = None,
-        run_id: str | None = None,
         jurisdiction: str | None = None,
     ) -> list[dict]:
         """
@@ -687,7 +678,6 @@ class VectorRetriever:
             document_id=document_id,
             document_ids=document_ids,
             course_id=course_id,
-            run_id=run_id,
             jurisdiction=jurisdiction,
         )
         if not filters_applied:
@@ -716,7 +706,6 @@ class VectorRetriever:
                     top=search_top_k,
                     document_ids=document_ids,
                     course_id=course_id,
-                    run_id=run_id,
                     jurisdiction=jurisdiction,
                 )
             except Exception as exc:

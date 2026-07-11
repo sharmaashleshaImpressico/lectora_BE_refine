@@ -33,7 +33,7 @@ _DISPLAY_AGENTS: dict[str, str] = {
     "LO_GEN": "LO_GENERATION",
     "LO_VALIDATOR": "LO_VALIDATOR",
     "LO_REFINE": "LO_REFINEMENT",
-    "LO_REGEN": "LO_REFINEMENT",
+    "LO_REGEN": "LO_Regeneration",
 }
 
 

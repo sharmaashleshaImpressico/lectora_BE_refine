@@ -285,7 +285,6 @@ def map_sections(
     *,
     course_id: str | None = None,
     document_ids: list[str] | None = None,
-    run_id: str | None = None,
     jurisdiction: str | None = None,
 ) -> list[dict]:
     """
@@ -313,16 +312,9 @@ def map_sections(
     document set are ever processed. For that to return results, the
     ``course_id`` written at ingestion time must match the one supplied here
     (see document_upload_service.upload_document).
-
-    Note: ``run_id`` is accepted for logging/traceability only and is
-    intentionally NOT included in the Azure AI Search scope filter — the
-    ingestion pipeline does not currently write ``run_id`` onto indexed
-    chunks, so a ``run_id eq '<value>'`` filter clause always matches zero
-    documents and silently breaks retrieval.
     """
     course_id = course_id or course_spec.get("course_id") or None
     document_ids = document_ids or course_spec.get("document_ids") or None
-    run_id = run_id or course_spec.get("run_id") or None
     jurisdiction = jurisdiction or course_spec.get("jurisdiction") or None
 
     spec_sections = course_spec.get("sections", [])
@@ -340,8 +332,8 @@ def map_sections(
         len(spec_sections),
     )
     logger.info(
-        "[SectionMapper] Retrieval scope: document_ids=%s course_id=%s run_id=%s jurisdiction=%s",
-        document_ids, course_id, run_id, jurisdiction,
+        "[SectionMapper] Retrieval scope: document_ids=%s course_id=%s jurisdiction=%s",
+        document_ids, course_id, jurisdiction,
     )
 
     # Propagate objective indices and images from A1 course_spec.

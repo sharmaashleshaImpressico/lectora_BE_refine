@@ -17,7 +17,7 @@ _DEFAULT_SELECT = (
     "chunk_id,document_id,section_id,source_file,page_num,"
     "title,raw_text,"
     "token_count,estimated_read_min,"
-    "course_id,run_id,jurisdiction"
+    "course_id,jurisdiction"
 )
 
 
@@ -31,12 +31,11 @@ def build_scope_filter(
     document_id: str | None = None,
     document_ids: list[str] | None = None,
     course_id: str | None = None,
-    run_id: str | None = None,
     jurisdiction: str | None = None,
 ) -> str | None:
     """
     Build a combined OData ``$filter`` expression restricting search to the
-    given course/run/document/jurisdiction scope.
+    given course/document/jurisdiction scope.
 
     Each provided field contributes an ``eq`` clause (or ``search.in`` for
     ``document_ids``); clauses are joined with ``and``. Fields left as
@@ -58,8 +57,6 @@ def build_scope_filter(
             clauses.append(f"search.in(document_id, '{safe_ids}', ',')")
     if course_id:
         clauses.append(f"course_id eq '{_escape_odata_literal(course_id)}'")
-    if run_id:
-        clauses.append(f"run_id eq '{_escape_odata_literal(run_id)}'")
     if jurisdiction:
         clauses.append(f"jurisdiction eq '{_escape_odata_literal(jurisdiction)}'")
 
@@ -252,26 +249,24 @@ class CourseRetrievalService:
         *,
         document_ids: list[str] | None = None,
         course_id: str | None = None,
-        run_id: str | None = None,
         jurisdiction: str | None = None,
     ) -> list[dict]:
         """
         Retrieve chunks most relevant to a topic (lesson-level) using vectors only.
 
-        Pre-filters the search space to the given course/run/document/jurisdiction
+        Pre-filters the search space to the given course/document/jurisdiction
         scope before running vector similarity — see ``build_scope_filter``.
         """
         filters = build_scope_filter(
             document_id=document_id,
             document_ids=document_ids,
             course_id=course_id,
-            run_id=run_id,
             jurisdiction=jurisdiction,
         )
         if not filters:
             logger.warning(
                 "[retrieval] retrieve_topic called with no scope filters "
-                "(course_id/run_id/document_id/jurisdiction) — searching the "
+                "(course_id/document_id/jurisdiction) — searching the "
                 "full shared index for query=%r.",
                 topic[:80],
             )
@@ -290,26 +285,24 @@ class CourseRetrievalService:
         *,
         document_ids: list[str] | None = None,
         course_id: str | None = None,
-        run_id: str | None = None,
         jurisdiction: str | None = None,
     ) -> list[dict]:
         """
         Retrieve chunks for a single subtopic using vectors only.
 
-        Pre-filters the search space to the given course/run/document/jurisdiction
+        Pre-filters the search space to the given course/document/jurisdiction
         scope before running vector similarity — see ``build_scope_filter``.
         """
         filters = build_scope_filter(
             document_id=document_id,
             document_ids=document_ids,
             course_id=course_id,
-            run_id=run_id,
             jurisdiction=jurisdiction,
         )
         if not filters:
             logger.warning(
                 "[retrieval] retrieve_for_subtopic called with no scope filters "
-                "(course_id/run_id/document_id/jurisdiction) — searching the "
+                "(course_id/document_id/jurisdiction) — searching the "
                 "full shared index for query=%r.",
                 subtopic_query[:80],
             )

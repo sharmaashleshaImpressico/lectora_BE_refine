@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import json
 import logging
-import time
 
 from app.ai.agents.required_topic.models import RTPipelineMetadata
 from app.ai.agents.required_topic.config.llm import (
@@ -26,7 +25,6 @@ from app.ai.agents.required_topic.rt_validator.models import (
 from semantic_kernel import Kernel
 
 from app.kernel.chat import chat_async
-from app.ai.shared_llm_config.tracer import write_span
 
 logger = logging.getLogger(__name__)
 
@@ -96,66 +94,37 @@ class RTRefinementAgent:
             len(input_data.issues),
         )
 
-        t_start = time.perf_counter()
-        _output_topics: list[str] = []
-        _fell_back = False
-        _error: str | None = None
-
         try:
-            try:
-                raw = await chat_async(
-                    self._kernel,
-                    SYSTEM_PROMPT,
-                    user_msg,
-                    config,
-                    "RT_REFINE",
-                )
-                data = json.loads(raw)
-            except json.JSONDecodeError as exc:
-                logger.warning(
-                    "[rt_refine_agent] JSON parse error — returning original topics: %s",
-                    exc,
-                )
-                _fell_back = True
-                return RTRefinementOutput(topics=list(input_data.topics))
-            except Exception:
-                logger.exception(
-                    "[rt_refine_agent] LLM call failed — returning original topics"
-                )
-                _fell_back = True
-                return RTRefinementOutput(topics=list(input_data.topics))
-
-            topics: list[str] = data.get("required_topics") or []
-            if not isinstance(topics, list):
-                topics = []
-            topics = [str(t).strip() for t in topics if t]
-
-            if not topics:
-                logger.warning(
-                    "[rt_refine_agent] LLM returned empty list — returning original topics"
-                )
-                _fell_back = True
-                return RTRefinementOutput(topics=list(input_data.topics))
-
-            _output_topics = topics
-            logger.info("[rt_refine_agent] Refined to %d topics", len(topics))
-            return RTRefinementOutput(topics=topics)
-        except Exception as exc:
-            _error = str(exc)
-            raise
-        finally:
-            write_span(
-                name="RT Refine | fix flagged topics",
-                agent="RT_REFINE",
-                latency_ms=(time.perf_counter() - t_start) * 1000,
-                input_data={
-                    "topics_count": len(input_data.topics),
-                    "issues_count": len(input_data.issues),
-                },
-                output_data={
-                    "refined_topics_count": len(_output_topics) or len(input_data.topics),
-                    "fell_back_to_original": _fell_back,
-                    "error": _error,
-                },
-                error=_error,
+            raw = await chat_async(
+                self._kernel,
+                SYSTEM_PROMPT,
+                user_msg,
+                config,
+                "RT_REFINE",
             )
+            data = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            logger.warning(
+                "[rt_refine_agent] JSON parse error — returning original topics: %s",
+                exc,
+            )
+            return RTRefinementOutput(topics=list(input_data.topics))
+        except Exception:
+            logger.exception(
+                "[rt_refine_agent] LLM call failed — returning original topics"
+            )
+            return RTRefinementOutput(topics=list(input_data.topics))
+
+        topics: list[str] = data.get("required_topics") or []
+        if not isinstance(topics, list):
+            topics = []
+        topics = [str(t).strip() for t in topics if t]
+
+        if not topics:
+            logger.warning(
+                "[rt_refine_agent] LLM returned empty list — returning original topics"
+            )
+            return RTRefinementOutput(topics=list(input_data.topics))
+
+        logger.info("[rt_refine_agent] Refined to %d topics", len(topics))
+        return RTRefinementOutput(topics=topics)

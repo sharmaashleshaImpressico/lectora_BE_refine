@@ -43,6 +43,7 @@ from datetime import datetime, timezone
 from semantic_kernel import Kernel
 
 from app.kernel.chat import chat as kernel_chat
+from app.tracing import set_generation_label
 from app.ai.agents.content_generation_agent.models import A2Output, A2Stats
 from app.ai.rule_pack_config.content_generation_filter import (
     resolve_content_rule_pack_from_shared_state,
@@ -109,6 +110,7 @@ def _build_course_conclusion(
     )
 
     try:
+        set_generation_label(f"content generate · Conclusion · {title_for_prompt}")
         raw = kernel_chat(kernel, CONCLUSION_SYSTEM_PROMPT, user_msg, CONCLUSION_CONFIG, "A2")
         text = _strip_fences(raw)
         if not text:

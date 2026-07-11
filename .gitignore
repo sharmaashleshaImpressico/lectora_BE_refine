@@ -74,6 +74,10 @@ venv/
 *.temp
 *.bak
 
+# ------------------------------
+# Local databases
+# ------------------------------
+lectora.db
 
 # Pipeline local runtime artifacts
 *.generate_to_cache/

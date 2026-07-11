@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import logging
+import re
+import uuid
 from typing import Any
 
 from semantic_kernel import Kernel
@@ -39,10 +41,16 @@ from app.orchestrators.learning_objective.models import (
     LearningObjectiveRegenerationInput,
     LearningObjectiveRegenerationResult,
 )
+from app.tracing import traced_workflow
 
 logger = logging.getLogger(__name__)
 
 _MAX_REPAIR_ATTEMPTS = 2
+
+
+def _doc_name_from_title(title: str | None, fallback: str) -> str:
+    s = re.sub(r"[^\w.\-]+", "_", (title or "").strip(), flags=re.UNICODE).strip("._")
+    return s or fallback
 
 
 def _issues_as_dicts(
@@ -121,6 +129,21 @@ class LearningObjectiveOrchestrator:
         input_data: LearningObjectiveGenerationInput,
     ) -> LearningObjectiveGenerationResult:
         metadata = _to_course_metadata(input_data)
+        run_id = f"lo-gen-{uuid.uuid4().hex[:8]}"
+        doc_name = _doc_name_from_title(metadata.course_title, "learning_objectives")
+        with traced_workflow(
+            "learning_objectives",
+            run_id=run_id,
+            doc_name=doc_name,
+            metadata={"course_title": metadata.course_title},
+            input_data={"course_title": metadata.course_title},
+        ):
+            return self._generate(metadata)
+
+    def _generate(
+        self,
+        metadata: CourseMetadata,
+    ) -> LearningObjectiveGenerationResult:
         logger.info(
             "[learning_objective] Starting | title=%r",
             metadata.course_title,
@@ -214,10 +237,20 @@ class LearningObjectiveOrchestrator:
     ) -> LearningObjectiveRegenerationResult:
         """Revise existing objectives from user feedback — no validation or repair."""
         agent_input = _to_regeneration_agent_input(input_data)
-        logger.info(
-            "[learning_objective] Regenerating | objectives=%d | prompt_length=%d",
-            len(agent_input.current_objectives),
-            len(agent_input.regeneration_prompt.strip()),
-        )
-        result = LORegenerationAgent(kernel=self.kernel).run(agent_input)
-        return LearningObjectiveRegenerationResult(objectives=result.objectives)
+        run_id = f"lo-regen-{uuid.uuid4().hex[:8]}"
+        doc_name = _doc_name_from_title(agent_input.course_title, "lo-regen")
+        with traced_workflow(
+            "learning_objectives_regenerate",
+            run_id=run_id,
+            doc_name=doc_name,
+            input_data={
+                "current_objectives_count": len(agent_input.current_objectives),
+            },
+        ):
+            logger.info(
+                "[learning_objective] Regenerating | objectives=%d | prompt_length=%d",
+                len(agent_input.current_objectives),
+                len(agent_input.regeneration_prompt.strip()),
+            )
+            result = LORegenerationAgent(kernel=self.kernel).run(agent_input)
+            return LearningObjectiveRegenerationResult(objectives=result.objectives)

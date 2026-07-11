@@ -14,7 +14,7 @@ from app.kernel.model_registry import get_deployment
 from app.ai.rule_pack_config.prompt_bundle import (
     bundle_rule_pack_for_validation_prompt,
 )
-from app.ai.shared_llm_config.tracer import set_langfuse_step_label
+from app.tracing import set_generation_label
 
 from .prompts import (
     AI_RESPONSE_SCHEMA,
@@ -152,11 +152,11 @@ def run_ai_validation(
     )
 
     if phase == "lesson" and lesson_title:
-        set_langfuse_step_label(f"content validate · {lesson_title}")
+        set_generation_label(f"content validate · {lesson_title}")
     elif phase == "lesson":
-        set_langfuse_step_label("content validate · lesson")
+        set_generation_label("content validate · lesson")
     else:
-        set_langfuse_step_label("content validate · full")
+        set_generation_label("content validate · full")
 
     issues: list[dict] = []
     for attempt in range(1, _MAX_LLM_RETRIES + 1):

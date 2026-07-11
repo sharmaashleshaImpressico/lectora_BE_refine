@@ -1,23 +1,25 @@
-"""Tracing and legacy shims — prefer ``app.kernel`` for LLM calls."""
+"""Tracing and legacy shims — prefer ``app.tracing`` for new code."""
 
 from app.shared_llm_config.tracer import (
-    flush_langfuse,
-    set_doc_name,
-    set_langfuse_step_label,
-    set_run_id,
-    set_run_context,
     set_source_refs,
-    shutdown_langfuse,
-    span_context,
+    submit_with_trace_context,
+)
+from app.tracing import (
+    atraced_workflow,
+    flush_tracing,
+    record_generation,
+    set_generation_label,
+    shutdown_tracing,
+    traced_workflow,
 )
 
 __all__ = [
-    "flush_langfuse",
-    "set_doc_name",
-    "set_langfuse_step_label",
-    "set_run_id",
-    "set_run_context",
+    "atraced_workflow",
+    "flush_tracing",
+    "record_generation",
+    "set_generation_label",
     "set_source_refs",
-    "shutdown_langfuse",
-    "span_context",
+    "shutdown_tracing",
+    "submit_with_trace_context",
+    "traced_workflow",
 ]

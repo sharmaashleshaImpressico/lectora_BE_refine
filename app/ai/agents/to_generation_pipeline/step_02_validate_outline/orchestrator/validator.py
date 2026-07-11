@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import time as _time
 from typing import Literal
 
 from semantic_kernel import Kernel
@@ -13,7 +12,6 @@ from app.ai.agents.to_generation_pipeline.to_rule_pack import (
     TO_RULE_PACK_VERSION,
 )
 from app.ai.agents.to_generation_pipeline.models import S1ValidationReport
-from app.ai.shared_llm_config.tracer import write_span
 
 from .deterministic_check_runner import DeterministicCheckRunner
 from .report_writer import ValidationReportWriter
@@ -38,29 +36,7 @@ class S1Validator:
 
     def run(self, *, phase: S1ValidationPhase = "full") -> S1ValidationReport:
         """Execute S1 validation checks and return a typed report."""
-        started_at = _time.perf_counter()
-        report: S1ValidationReport | None = None
-        error: str | None = None
-        try:
-            report = self._run_checks(phase=phase)
-            return report
-        except Exception as exc:
-            error = str(exc)
-            raise
-        finally:
-            write_span(
-                name=f"S1 Validation | phase={phase}",
-                agent="S1",
-                latency_ms=(_time.perf_counter() - started_at) * 1000,
-                output_data={
-                    "status": getattr(report, "status", None),
-                    "blockers": getattr(report, "blockers", None),
-                    "warnings": getattr(report, "warnings", None),
-                }
-                if report is not None
-                else {},
-                error=error,
-            )
+        return self._run_checks(phase=phase)
 
     def _run_checks(self, *, phase: S1ValidationPhase) -> S1ValidationReport:
         logger.info("[S1] Running validation checks in-memory (phase=%s)...", phase)

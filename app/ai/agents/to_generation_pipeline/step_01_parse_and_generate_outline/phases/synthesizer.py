@@ -190,25 +190,27 @@ class A0RequestSynthesizer:
             run_id=self.run_id,
         )
 
-    def _ensure_trace_context(self) -> None:
-        from app.ai.shared_llm_config.tracer import (
-            set_run_context,
-            set_source_refs,
-        )
+    def run(self) -> A0Result:
+        from app.tracing import traced_workflow
 
         doc_name = self._resolve_trace_doc_name()
         source_refs = [*self.docx_paths, *self.pdf_paths]
         if self.to_outline_doc_path:
             source_refs.append(self.to_outline_doc_path)
-        # Always overwrite run_id so retry cycles (cycle 2, 3) don't inherit the
-        # previous cycle's trace ID and contaminate the earlier trace.
-        set_run_context(self.run_id, doc_name, source_refs=source_refs)
 
-    def run(self) -> A0Result:
-        self._ensure_trace_context()
-
-        parsed = ParsePhase(self).execute()
-        paragraphs_by_source = ParsePhase.build_paragraphs_by_source(parsed)
-        classification = ClassificationPhase(self, parsed).prepare()
-        generation = TOGenerationPhase(self, parsed, classification, paragraphs_by_source).execute()
-        return FinalizationPhase(self, parsed, classification, generation).execute()
+        # source_refs are scoped by traced_workflow (token reset on exit).
+        with traced_workflow(
+            "A0",
+            run_id=self.run_id,
+            doc_name=doc_name,
+            source_refs=source_refs,
+        ):
+            parsed = ParsePhase(self).execute()
+            paragraphs_by_source = ParsePhase.build_paragraphs_by_source(parsed)
+            classification = ClassificationPhase(self, parsed).prepare()
+            generation = TOGenerationPhase(
+                self, parsed, classification, paragraphs_by_source
+            ).execute()
+            return FinalizationPhase(
+                self, parsed, classification, generation
+            ).execute()

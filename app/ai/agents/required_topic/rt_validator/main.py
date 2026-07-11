@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import json
 import logging
-import time
 
 from app.ai.agents.required_topic.models import RTPipelineMetadata
 from app.ai.agents.required_topic.config.llm import (
@@ -25,7 +24,6 @@ from app.ai.agents.required_topic.rt_validator.prompts import (
 from semantic_kernel import Kernel
 
 from app.kernel.chat import chat_async
-from app.ai.shared_llm_config.tracer import write_span
 
 logger = logging.getLogger(__name__)
 
@@ -87,60 +85,36 @@ class RTValidatorAgent:
             "[rt_validator] Validating %d topics", len(input_data.topics)
         )
 
-        t_start = time.perf_counter()
-        _result_status = "pass"
-        _issue_count = 0
-        _error: str | None = None
-
         try:
-            try:
-                raw = await chat_async(
-                    self._kernel,
-                    SYSTEM_PROMPT,
-                    user_msg,
-                    config,
-                    "RT_VALIDATOR",
-                )
-                data = json.loads(raw)
-            except json.JSONDecodeError as exc:
-                logger.warning(
-                    "[rt_validator] JSON parse error — treating as pass: %s", exc
-                )
-                return RTValidationOutput(status="pass")
-            except Exception:
-                logger.exception("[rt_validator] LLM call failed — treating as pass")
-                return RTValidationOutput(status="pass")
-
-            status = str(data.get("status") or "pass").lower().strip()
-            if status not in ("pass", "fail"):
-                status = "pass"
-
-            raw_issues = data.get("issues") or []
-            issues = _parse_issues(raw_issues) if isinstance(raw_issues, list) else []
-
-            # Normalise: status=pass must have no issues; status=fail must have issues.
-            if status == "fail" and not issues:
-                status = "pass"
-            if status == "pass" and issues:
-                issues = []
-
-            _result_status = status
-            _issue_count = len(issues)
-            logger.info("[rt_validator] Result: %s | issues: %d", status, _issue_count)
-            return RTValidationOutput(status=status, issues=issues)
-        except Exception as exc:
-            _error = str(exc)
-            raise
-        finally:
-            write_span(
-                name="RT Validator | validate topics",
-                agent="RT_VALIDATOR",
-                latency_ms=(time.perf_counter() - t_start) * 1000,
-                input_data={"topics_count": len(input_data.topics)},
-                output_data={
-                    "status": _result_status,
-                    "issues_count": _issue_count,
-                    "error": _error,
-                },
-                error=_error,
+            raw = await chat_async(
+                self._kernel,
+                SYSTEM_PROMPT,
+                user_msg,
+                config,
+                "RT_VALIDATOR",
             )
+            data = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            logger.warning(
+                "[rt_validator] JSON parse error — treating as pass: %s", exc
+            )
+            return RTValidationOutput(status="pass")
+        except Exception:
+            logger.exception("[rt_validator] LLM call failed — treating as pass")
+            return RTValidationOutput(status="pass")
+
+        status = str(data.get("status") or "pass").lower().strip()
+        if status not in ("pass", "fail"):
+            status = "pass"
+
+        raw_issues = data.get("issues") or []
+        issues = _parse_issues(raw_issues) if isinstance(raw_issues, list) else []
+
+        # Normalise: status=pass must have no issues; status=fail must have issues.
+        if status == "fail" and not issues:
+            status = "pass"
+        if status == "pass" and issues:
+            issues = []
+
+        logger.info("[rt_validator] Result: %s | issues: %d", status, len(issues))
+        return RTValidationOutput(status=status, issues=issues)

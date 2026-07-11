@@ -70,7 +70,7 @@ azure_settings = AzureSQLSettings()
 
 
 class LLMPipelineSettings(BaseSettings):
-    """Azure OpenAI + Langfuse settings for the content pipeline's shared LLM client."""
+    """Azure OpenAI + tracing provider settings for the shared LLM client."""
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
@@ -78,6 +78,11 @@ class LLMPipelineSettings(BaseSettings):
     azure_openai_endpoint: str | None = None
     azure_openai_api_version: str = "2024-12-01-preview"
 
+    # Provider selection (source of truth for which sinks are active).
+    tracing_enabled: bool = True
+    tracing_providers: str = "jsonl,langfuse"
+
+    # Langfuse credentials (used only when ``langfuse`` is listed in TRACING_PROVIDERS).
     langfuse_public_key: str | None = None
     langfuse_secret_key: str | None = None
     langfuse_host: str | None = None
@@ -85,6 +90,8 @@ class LLMPipelineSettings(BaseSettings):
     langfuse_project: str | None = None
     langfuse_env: str | None = None
     langfuse_api_key: str | None = None
+    langfuse_max_chars: int = 50_000
+    jsonl_max_chars: int | None = None
 
 
 llm_pipeline_settings = LLMPipelineSettings()

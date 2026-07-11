@@ -13,7 +13,7 @@ from semantic_kernel import Kernel
 from app.ai.shared_llm_config.llm import LLMConfig, chat as llm_chat
 from app.ai.shared_llm_config.model_registry import get_deployment
 from app.ai.shared_llm_config.tracer import (
-    defer_s1_langfuse_tracing,
+    defer_s1_generation_export,
 )
 
 from ...constants.prompts import (
@@ -84,7 +84,7 @@ class SemanticValidator(BaseValidator):
             response_format={"type": "json_object"},
         )
 
-        with defer_s1_langfuse_tracing():
+        with defer_s1_generation_export():
             raw_data = self._call_llm_with_retries(prompt, payload_json, config)
         result = self._to_validation_result(raw_data)
         self._finalize_result(result)

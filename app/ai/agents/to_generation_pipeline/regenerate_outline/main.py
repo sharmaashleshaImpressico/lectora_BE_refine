@@ -9,7 +9,7 @@ Langfuse tracing
 ────────────────
 Each run gets a unique run_id (``to-regen-<8 hex chars>``).  The LLM call is
 traced automatically by the shared ``chat()`` wrapper.  A parent span wraps
-the full agent run and ``flush_langfuse()`` is called before returning.
+the full agent run; root ``traced_workflow`` flushes on exit.
 """
 from __future__ import annotations
 
@@ -28,11 +28,7 @@ from app.ai.agents.to_generation_pipeline.regenerate_outline.models import (
 )
 from app.ai.agents.to_generation_pipeline.regenerate_outline.prompts import SYSTEM_PROMPT
 from app.kernel.chat import chat as llm_chat
-from app.ai.shared_llm_config.tracer import (
-    flush_langfuse,
-    set_run_context,
-    span_context,
-)
+from app.tracing import traced_workflow
 
 logger = logging.getLogger(__name__)
 
@@ -142,15 +138,11 @@ class TORegenerationAgent:
     def run(self, input_data: TORegenerationInput) -> TORegenerationOutput:
         run_id = f"to-regen-{_uuid.uuid4().hex[:8]}"
         doc_name = _course_name(input_data.current_to) or "to-regen"
-        set_run_context(run_id, doc_name)
-
-        try:
-            with span_context(
-                name="TO Regeneration | revise outline",
-                agent="TO_REGEN",
-                input_data=_build_input_data(input_data),
-            ):
-                result, _error, _fell_back = _execute(self._kernel, input_data)
-                return result
-        finally:
-            flush_langfuse()
+        with traced_workflow(
+            "topic_outline_regenerate",
+            run_id=run_id,
+            doc_name=doc_name,
+            input_data=_build_input_data(input_data),
+        ):
+            result, _error, _fell_back = _execute(self._kernel, input_data)
+            return result

@@ -34,7 +34,10 @@ from app.tracing import traced_workflow
 logger = logging.getLogger(__name__)
 
 _MAX_REPAIR_ATTEMPTS = 2
-_PASSING_STATUSES = {"pass", "pass_with_warnings"}
+# Only a clean pass skips / exits the repair loop. Warnings map to
+# ``pass_with_warnings`` in ValidationReportWriter, but the semantic validator
+# marks those as FAIL with retry_required — refinement must still run.
+_CLEAN_PASS_STATUSES = frozenset({"pass"})
 
 
 def _doc_name(title: str | None, fallback: str) -> str:
@@ -150,6 +153,7 @@ class TopicOutlineOrchestrator:
             wizard_prompt_context=_build_wizard_prompt_context(metadata),
             validation_hints=_build_validation_hints(metadata),
             difficulty_level=metadata.difficulty,
+            course_topic=metadata.course_topic,
             cancel_event=cancel_event,
         )
 
@@ -173,6 +177,7 @@ class TopicOutlineOrchestrator:
         wizard_learning_objectives: list[str] | None = None,
         preferred_chapters: int | None = None,
         wizard_prompt_context: ToWizardPromptContext | None = None,
+        course_topic: str | None = None,
         cancel_event: threading.Event | None = None,
     ) -> TimedOutlineGenerationResult:
         logger.info(
@@ -201,6 +206,7 @@ class TopicOutlineOrchestrator:
             wizard_learning_objectives=wizard_learning_objectives,
             preferred_chapters=preferred_chapters,
             wizard_prompt_context=wizard_prompt_context,
+            course_topic=course_topic,
             cancel_event=cancel_event,
         )
         doc_name = generation_agent._resolve_trace_doc_name()
@@ -239,7 +245,7 @@ class TopicOutlineOrchestrator:
         with traced_workflow("S1"):
             validation = validator_agent.run()
 
-        if validation.status in _PASSING_STATUSES:
+        if validation.status in _CLEAN_PASS_STATUSES:
             return TimedOutlineGenerationResult(
                 outline=current_outline,
                 validation_passed=True,
@@ -248,14 +254,21 @@ class TopicOutlineOrchestrator:
             )
 
         current_issues = validation.issues
+        attempts_used = 0
 
-        # Step 3: Repair loop
+        # Step 3: Repair loop — runs for blockers *and* warnings
+        # (``pass_with_warnings``). Infos alone never produce that status.
         for attempt in range(1, _MAX_REPAIR_ATTEMPTS + 1):
+            attempts_used = attempt
             logger.info(
-                "[topic_outline] Refinement attempt %s/%s | issues=%s",
+                "[topic_outline] Refinement attempt %s/%s | status=%s issues=%s "
+                "(blockers=%s warnings=%s)",
                 attempt,
                 _MAX_REPAIR_ATTEMPTS,
+                validation.status,
                 len(current_issues),
+                validation.blockers,
+                validation.warnings,
             )
 
             with traced_workflow("S1_TO_REFINE"):
@@ -263,6 +276,7 @@ class TopicOutlineOrchestrator:
                     S1RefinementInput(
                         current_outline=current_outline,
                         issues=_refinement_issues(current_issues),
+                        course_config=dict(shared_state.get("course_config") or {}),
                     )
                 )
 
@@ -282,7 +296,7 @@ class TopicOutlineOrchestrator:
                 validation = validator_agent.run()
             current_issues = validation.issues
 
-            if validation.status in _PASSING_STATUSES:
+            if validation.status in _CLEAN_PASS_STATUSES:
                 return TimedOutlineGenerationResult(
                     outline=current_outline,
                     validation_passed=True,
@@ -290,10 +304,29 @@ class TopicOutlineOrchestrator:
                     blocked=False,
                 )
 
+        # After repair attempts: hard-block only when blockers remain.
+        # Residual warnings are accepted (same soft outcome as pass_with_warnings)
+        # once refinement has had a chance to run.
+        if validation.blockers == 0:
+            logger.info(
+                "[topic_outline] Accepting outline after repair with residual "
+                "warnings=%s infos=%s (attempts=%s)",
+                validation.warnings,
+                validation.infos,
+                attempts_used,
+            )
+            return TimedOutlineGenerationResult(
+                outline=current_outline,
+                validation_passed=True,
+                repair_attempts=attempts_used,
+                blocked=False,
+                final_issues=_issues_as_dicts(current_issues),
+            )
+
         return TimedOutlineGenerationResult(
             outline=current_outline,
             validation_passed=False,
-            repair_attempts=_MAX_REPAIR_ATTEMPTS,
+            repair_attempts=attempts_used,
             blocked=True,
             final_issues=_issues_as_dicts(current_issues),
         )

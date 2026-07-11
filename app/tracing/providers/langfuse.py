@@ -16,14 +16,14 @@ from app.tracing.sanitize import sanitize_secrets, truncate_text
 logger = logging.getLogger(__name__)
 
 _DISPLAY_AGENTS: dict[str, str] = {
-    "A0": "A0",
-    "A0_TO": "A0",
-    "TO_REGEN": "A0",
+    "A0": "TO_GENERATION",
+    "A0_TO": "TO_GENERATION",
+    "TO_REGEN": "TO_GENERATION",
     "A1": "A1",
     "A2": "A2",
     "CONTENT_REFINE": "S2_REFINE",
-    "S1": "S1",
-    "S1_TO_REFINE": "S1_REFINE",
+    "S1": "TO_VALIDATOR",
+    "S1_TO_REFINE": "TO_REFINEMENT",
     "S2": "S2",
     "S2_REFINE": "S2_REFINE",
     "RT_GEN": "RT_GENERATION",
@@ -164,7 +164,7 @@ class LangfuseTracingProvider:
                 attr_entered = True
             obs_cm = client.start_as_current_observation(
                 as_type="span",
-                name=ctx.workflow,
+                name=_display_agent(ctx.workflow),
                 trace_context=trace_context,
                 input=payload_in,
                 metadata=metadata or None,
@@ -227,7 +227,11 @@ class LangfuseTracingProvider:
 
         label = (data.observation_name or data.metadata.get("generation_label") or "").strip()
         base = _display_agent(data.agent)
-        name = f"{base} · {label}" if label else base
+        if label:
+            display_label = _display_agent(label)
+            name = base if display_label == base else f"{base} · {display_label}"
+        else:
+            name = base
 
         user_content = (
             data.user_input

@@ -113,6 +113,14 @@ class SharedState(BaseModel):
     llm_classification: LLMClassification | None = None
     llm_to_outline_classification: dict[str, Any] = Field(default_factory=dict)
     agent_outputs: AgentOutputSlots = Field(default_factory=AgentOutputSlots)
+    # FE/wizard inputs persisted so S1 (and refine revalidation) see the same
+    # user requirements that drove A0 generation.
+    course_config: dict[str, Any] = Field(default_factory=dict)
+    course_title_override: str | None = None
+    course_difficulty: str | None = None
+    course_audience: str | None = None
+    special_instructions: str | None = None
+    source_file_specs: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class A0Result(BaseModel):

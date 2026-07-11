@@ -77,6 +77,7 @@ class A0RequestSynthesizer:
         difficulty_level: Optional[str] = None,
         calculated_word_count: Optional[int] = None,
         course_description: Optional[str] = None,
+        course_topic: Optional[str] = None,
         cancel_event: Optional[threading.Event] = None,
         use_static_prompt: bool = False,
         rule_family: Optional[str] = None,
@@ -135,6 +136,7 @@ class A0RequestSynthesizer:
         self.course_type_hint: Optional[str] = course_type_hint
         self.audience: Optional[str] = (audience or "").strip() or None
         self.course_description: Optional[str] = (course_description or "").strip() or None
+        self.course_topic: Optional[str] = (course_topic or "").strip() or None
         self.course_output_slug = (course_output_slug or "").strip() or None
         self.step_logger = step_logger
 

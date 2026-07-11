@@ -13,6 +13,14 @@ COURSE_CONFIG_KEYS: tuple[str, ...] = (
     "duration_hours",
     "difficulty_level",
     "calculated_word_count",
+    "preferred_chapters",
+    "lesson_style",
+    "experience_level",
+    "learner_outcomes",
+    "course_type_hint",
+    "course_description",
+    "include_case_studies",
+    "include_examples",
 )
 
 LLM_CALL_PURPOSE = "S1_TO_REFINE"

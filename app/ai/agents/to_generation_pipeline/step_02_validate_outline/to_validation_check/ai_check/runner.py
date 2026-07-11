@@ -315,17 +315,29 @@ class AIOutlineValidator:
 
         n_missing = len(missing_required)
         n_partial = len(partial_required)
-        if n_missing or n_partial:
+        if not required_topics:
+            precheck_instruction = (
+                "No required topics were supplied; skip required-topic coverage checks."
+            )
+        elif n_missing or n_partial:
             logger.warning(
                 "[S1][AI] Required-topics pre-check: %d missing, %d partial out of %d requested.",
                 n_missing,
                 n_partial,
                 len(required_topics),
             )
+            precheck_instruction = (
+                "The deterministic pre-check above already flagged the topics below. "
+                "Do NOT contradict these findings. For each missing/partial topic, "
+                "produce a corresponding issue and add it to missing_topics. "
+                f"Missing: {missing_required}. Partial: {partial_required}."
+            )
         else:
             logger.info(
-                "[S1][AI] Required-topics pre-check: all %d required topics covered.", len(required_topics)
+                "[S1][AI] Required-topics pre-check: all %d required topics covered.",
+                len(required_topics),
             )
+            precheck_instruction = "All required topics detected by pre-check."
 
         payload = prune_empty_payload_values(
             {
@@ -359,14 +371,7 @@ class AIOutlineValidator:
                     "missing_count": n_missing,
                     "partial_count": n_partial,
                     "coverage": required_topics_precheck,
-                    "instruction": (
-                        "The deterministic pre-check above already flagged the topics below. "
-                        "Do NOT contradict these findings. For each missing/partial topic, "
-                        "produce a corresponding issue and add it to missing_topics. "
-                        f"Missing: {missing_required}. Partial: {partial_required}."
-                    )
-                    if (n_missing or n_partial)
-                    else "All required topics detected by pre-check.",
+                    "instruction": precheck_instruction,
                 },
                 "frontend_input_contract": {
                     "source": "POST /generate-to",

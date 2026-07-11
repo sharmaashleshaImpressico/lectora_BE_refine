@@ -30,6 +30,7 @@ from app.ai.agents.to_generation_pipeline.models import (
     RuleClassification,
     SharedState,
 )
+from app.ai.rule_pack_config.prune import prune_empty_payload_values
 from app.ai.rule_pack_config.rule_packs import RULE_PACKS, resolve_rule_pack
 from app.ai.shared_utils.course_id_resolver import (
     derive_course_id_from_title,
@@ -43,6 +44,7 @@ from app.ai.shared_utils.learning_objectives import normalize_learning_objective
 
 if TYPE_CHECKING:
     from .synthesizer import A0RequestSynthesizer
+    from ..shared.models.to_wizard_prompt_context import ToWizardPromptContext
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +58,75 @@ def _normalize_provenance_source(source: str) -> str:
     if source == "derived_from_rule_pack":
         return "derived_from_rule_pack"
     return "unresolved"
+
+
+def _source_file_specs_from_wizard(
+    wizard: "ToWizardPromptContext | None",
+) -> list[dict[str, Any]]:
+    """Map wizard source analyses into the S1 ``source_file_specs`` shape."""
+    if wizard is None or not wizard.source_analyses:
+        return []
+    specs: list[dict[str, Any]] = []
+    for analysis in wizard.source_analyses:
+        specs.append(
+            prune_empty_payload_values(
+                {
+                    "filename": analysis.source_name,
+                    "extract_hint": analysis.extract_hint,
+                    "main_topics": list(analysis.main_topics),
+                    "recommended_course_use": analysis.recommended_course_use,
+                    "recommended_depth": analysis.recommended_depth,
+                    "supports_learning_objectives": list(
+                        analysis.supports_learning_objectives
+                    ),
+                    "ignore_or_reduce": list(analysis.ignore_or_reduce),
+                }
+            )
+        )
+    return specs
+
+
+def build_course_config_for_shared_state(
+    *,
+    difficulty_level: str | None = None,
+    duration_hours: float | None = None,
+    calculated_word_count: int | None = None,
+    preferred_chapters: int | None = None,
+    course_type_hint: str | None = None,
+    audience: str | None = None,
+    course_description: str | None = None,
+    course_topic: str | None = None,
+    learning_objectives: list[str] | None = None,
+    wizard: "ToWizardPromptContext | None" = None,
+) -> dict[str, Any]:
+    """Assemble FE/wizard inputs for S1 ``collect_s1_user_requirements``.
+
+    Empty/null values are pruned; ``False`` / ``0`` are preserved.
+    """
+    wizard_audience = (wizard.audience_notes if wizard else None) or audience
+    config: dict[str, Any] = {
+        "difficulty_level": difficulty_level,
+        "duration_hours": duration_hours,
+        "calculated_word_count": calculated_word_count,
+        "preferred_chapters": preferred_chapters,
+        "course_type_hint": (wizard.course_type_hint if wizard else None) or course_type_hint,
+        "audience_notes": wizard_audience,
+        "course_description": course_description,
+        "course_topic": course_topic,
+        "learning_objectives": normalize_learning_objectives(learning_objectives or []),
+        "experience_level": wizard.experience_level if wizard else None,
+        "learner_outcomes": wizard.learner_outcomes if wizard else None,
+        "tone": wizard.tone if wizard else None,
+        "depth": wizard.depth if wizard else None,
+        "emphasis": wizard.emphasis if wizard else None,
+        "avoid": wizard.avoid if wizard else None,
+        "include_case_studies": wizard.include_case_studies if wizard else None,
+        "include_examples": wizard.include_examples if wizard else None,
+        "include_knowledge_checks": wizard.include_knowledge_checks if wizard else None,
+        "lesson_style": wizard.lesson_style if wizard else None,
+        "required_topics": list(wizard.required_topics) if wizard else [],
+    }
+    return prune_empty_payload_values(config)
 
 
 class FinalizationPhase:
@@ -211,6 +282,21 @@ class FinalizationPhase:
         llm_classification = LLMClassification.model_validate(generation.llm_result)
         heading_map_serialized: list[list] = [list(entry) for entry in parsed.heading_map]
 
+        course_config = build_course_config_for_shared_state(
+            difficulty_level=synth.difficulty_level,
+            duration_hours=synth.duration_hours,
+            calculated_word_count=synth.calculated_word_count,
+            preferred_chapters=synth.preferred_chapters,
+            course_type_hint=synth.course_type_hint,
+            audience=synth.audience,
+            course_description=synth.course_description,
+            course_topic=getattr(synth, "course_topic", None),
+            learning_objectives=synth.wizard_learning_objectives,
+            wizard=synth.wizard_prompt_context,
+        )
+        source_file_specs = _source_file_specs_from_wizard(synth.wizard_prompt_context)
+        avoid = (course_config.get("avoid") or "").strip() or None
+
         return SharedState(
             run_id=synth.run_id,
             status="a0_completed",
@@ -237,6 +323,12 @@ class FinalizationPhase:
             llm_classification=llm_classification,
             llm_to_outline_classification=generation.llm_to_outline_result,
             agent_outputs=AgentOutputSlots(),
+            course_config=course_config,
+            course_title_override=synth.wizard_course_title,
+            course_difficulty=synth.difficulty_level,
+            course_audience=synth.audience,
+            special_instructions=avoid,
+            source_file_specs=source_file_specs,
         )
 
     def _persist_artifacts(

@@ -15,7 +15,7 @@ Langfuse tracing
 ────────────────
 Each run gets a unique run_id (``lo-regen-<8 hex chars>``).  The LLM call is
 traced automatically by the shared ``chat()`` wrapper.  A parent span wraps
-the full agent run and ``flush_langfuse()`` is called before returning.
+the full agent run; root ``traced_workflow`` flushes on exit.
 """
 from __future__ import annotations
 
@@ -34,11 +34,6 @@ from app.ai.agents.learning_objective_agent.Lo_regenerate_agent.models import (
 from semantic_kernel import Kernel
 
 from app.kernel.chat import chat
-from app.ai.shared_llm_config.tracer import (
-    flush_langfuse,
-    set_run_context,
-    span_context,
-)
 
 logger = logging.getLogger(__name__)
 
@@ -179,17 +174,6 @@ class LORegenerationAgent:
         self._kernel = kernel
 
     def run(self, input_data: LORegenerationInput) -> LORegenerationOutput:
-        run_id = f"lo-regen-{_uuid.uuid4().hex[:8]}"
-        doc_name = (input_data.course_title or "").strip() or "lo-regen"
-        set_run_context(run_id, doc_name)
-
-        try:
-            with span_context(
-                name="LO Regeneration | revise objectives",
-                agent="LO_REGEN",
-                input_data=_build_input_data(input_data),
-            ):
-                result, _error, _fell_back = _execute(self._kernel, input_data)
-                return result
-        finally:
-            flush_langfuse()
+        # Workflow context is owned by LearningObjectiveOrchestrator.regenerate_learning_objectives.
+        result, _error, _fell_back = _execute(self._kernel, input_data)
+        return result

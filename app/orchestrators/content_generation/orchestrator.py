@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
@@ -23,8 +24,14 @@ from app.ai.agents.content_generation_agent.section_mapper.runner import (
     map_sections,
 )
 from app.ai.rule_pack_config import resolve_content_rule_pack_from_shared_state
+from app.tracing import traced_workflow
 
 logger = logging.getLogger(__name__)
+
+
+def _doc_name(title: str | None, fallback: str) -> str:
+    s = re.sub(r"[^\w.\-]+", "_", (title or "").strip(), flags=re.UNICODE).strip("._")
+    return s or fallback
 
 _MAX_REPAIR_ATTEMPTS = 2
 
@@ -145,6 +152,27 @@ class ContentGenerationOrchestrator:
             spec.course_difficulty,
         )
 
+        doc_name = _doc_name(spec.course_title, "content_generation")
+
+        with traced_workflow(
+            "content_generation",
+            run_id=spec.run_id,
+            doc_name=doc_name,
+            course_id=spec.course_id,
+            course_run_id=spec.run_id,
+            metadata={"course_title": spec.course_title},
+            input_data={
+                "course_title": spec.course_title,
+                "difficulty": spec.course_difficulty,
+            },
+        ):
+            return self._execute_pipeline(spec, reporter)
+
+    def _execute_pipeline(
+        self,
+        spec: ContentGenerationInput,
+        reporter: StageReporter,
+    ) -> ContentGenerationResult:
         # Step 1: Section Mapper — maps the TO outline onto course_spec content.
         reporter.start(
             "SECTION_MAPPER", "Section Mapper running — retrieving source content for each section…"
@@ -164,21 +192,22 @@ class ContentGenerationOrchestrator:
 
         # Step 2: Generate content (A2)
         reporter.start("A2", "Generating course content for each lesson…")
-        current_a2 = generate_course_content(
-            self.kernel,
-            run_id=spec.run_id,
-            enriched_sections=enriched_sections,
-            docx_path=spec.docx_path,
-            course_title=spec.course_title,
-            course_description=spec.course_description,
-            learning_objectives=spec.learning_objectives,
-            content_sample=spec.content_sample,
-            course_difficulty=spec.course_difficulty,
-            course_audience=spec.course_audience,
-            special_instructions=spec.special_instructions,
-            course_config=spec.course_config,
-            source_file_specs=spec.source_file_specs,
-        )
+        with traced_workflow("A2"):
+            current_a2 = generate_course_content(
+                self.kernel,
+                run_id=spec.run_id,
+                enriched_sections=enriched_sections,
+                docx_path=spec.docx_path,
+                course_title=spec.course_title,
+                course_description=spec.course_description,
+                learning_objectives=spec.learning_objectives,
+                content_sample=spec.content_sample,
+                course_difficulty=spec.course_difficulty,
+                course_audience=spec.course_audience,
+                special_instructions=spec.special_instructions,
+                course_config=spec.course_config,
+                source_file_specs=spec.source_file_specs,
+            )
         reporter.complete(
             "A2", f"Course content generated for {len(current_a2.sections)} section(s)."
         )
@@ -201,15 +230,16 @@ class ContentGenerationOrchestrator:
 
         # Step 3: Initial validation (S2)
         reporter.start("S2", "Running validation & quality checks on the generated content…")
-        validation = validate_content(
-            self.kernel,
-            sections=current_a2.sections,
-            a2_output=current_a2,
-            rule_pack=rule_pack,
-            context=validation_context,
-            run_id=spec.run_id,
-            phase="full",
-        )
+        with traced_workflow("S2"):
+            validation = validate_content(
+                self.kernel,
+                sections=current_a2.sections,
+                a2_output=current_a2,
+                rule_pack=rule_pack,
+                context=validation_context,
+                run_id=spec.run_id,
+                phase="full",
+            )
 
         if not _is_blocked(validation):
             reporter.complete("S2", "Content validated successfully.", outcome="PASS")
@@ -237,22 +267,24 @@ class ContentGenerationOrchestrator:
                 f"(attempt {attempt}/{_MAX_REPAIR_ATTEMPTS})…",
             )
 
-            current_a2 = refine_sections(
-                self.kernel,
-                a2_output=current_a2,
-                s2_report=validation,
-                rule_pack=rule_pack,
-                context=validation_context,
-            )
-            validation = validate_content(
-                self.kernel,
-                sections=current_a2.sections,
-                a2_output=current_a2,
-                rule_pack=rule_pack,
-                context=validation_context,
-                run_id=spec.run_id,
-                phase="full",
-            )
+            with traced_workflow("CONTENT_REFINE"):
+                current_a2 = refine_sections(
+                    self.kernel,
+                    a2_output=current_a2,
+                    s2_report=validation,
+                    rule_pack=rule_pack,
+                    context=validation_context,
+                )
+            with traced_workflow("S2"):
+                validation = validate_content(
+                    self.kernel,
+                    sections=current_a2.sections,
+                    a2_output=current_a2,
+                    rule_pack=rule_pack,
+                    context=validation_context,
+                    run_id=spec.run_id,
+                    phase="full",
+                )
 
             if not _is_blocked(validation):
                 reporter.complete("S2", "Content validated successfully after refinement.", outcome="PASS")

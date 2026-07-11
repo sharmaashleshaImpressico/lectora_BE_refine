@@ -17,7 +17,7 @@ from semantic_kernel.contents import ChatHistory
 from semantic_kernel.exceptions import KernelServiceNotFoundError
 
 from app.kernel.config import load_kernel_settings
-from app.shared_llm_config.tracer import LLMTrace, write_trace
+from app.tracing import GenerationTraceData, record_generation
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _CHAT_SERVICE_PREFIX = "azure_chat_"
@@ -164,25 +164,27 @@ async def chat_async(
         raise
     finally:
         latency_ms = (time.perf_counter() - t_start) * 1000
-        write_trace(
-            LLMTrace(
+        record_generation(
+            GenerationTraceData(
                 agent=agent,
-                deployment=config.deployment,
                 system_prompt=effective_system_prompt,
-                user_msg=user_msg,
+                user_input=user_msg,
                 response=response_text,
-                latency_ms=latency_ms,
-                prompt_tokens=prompt_tokens,
-                completion_tokens=completion_tokens,
-                total_tokens=total_tokens,
-                error=error_msg,
+                model=config.deployment,
                 model_parameters={
                     "temperature": config.temperature,
                     "max_completion_tokens": config.max_tokens,
                     "top_k": config.top_k,
                     "response_format": config.response_format,
                 },
-                prompt_metadata={
+                token_usage={
+                    "input": prompt_tokens,
+                    "output": completion_tokens,
+                    "total": total_tokens,
+                },
+                latency_ms=latency_ms,
+                error=error_msg,
+                metadata={
                     "original_system_prompt": system_prompt,
                     "effective_system_prompt": effective_system_prompt,
                     "prompt_was_augmented_for_json_contract": (
@@ -190,7 +192,6 @@ async def chat_async(
                     ),
                     **_infer_prompt_callsite(),
                 },
-                observation_name=None,
             )
         )
 

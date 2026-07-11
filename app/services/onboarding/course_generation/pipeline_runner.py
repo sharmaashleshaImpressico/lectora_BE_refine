@@ -58,6 +58,7 @@ from app.services.onboarding.course_generation.data_loader import (
 )
 from app.services.onboarding.course_generation.job_progress_service import JobProgressService
 from app.services.onboarding.course_generation.job_service import CourseGenerationJobService
+from app.tracing import traced_workflow
 
 logger = logging.getLogger(__name__)
 
@@ -168,6 +169,19 @@ class CourseGenerationPipelineRunner:
             raise
 
     def _execute(self, *, job_id: str, course_run_id: str) -> None:
+        with traced_workflow(
+            "course_generation",
+            run_id=job_id,
+            session_id=course_run_id,
+            job_id=job_id,
+            course_run_id=course_run_id,
+            doc_name=f"job_{job_id}",
+            metadata={"job_id": job_id, "course_run_id": course_run_id},
+            input_data={"job_id": job_id, "course_run_id": course_run_id},
+        ):
+            self._execute_traced(job_id=job_id, course_run_id=course_run_id)
+
+    def _execute_traced(self, *, job_id: str, course_run_id: str) -> None:
         with tempfile.TemporaryDirectory(prefix=f"course_gen_{job_id}_") as tmp_dir:
             output_path = str(Path(tmp_dir) / "study_guide.docx")
             spec = self.loader.load(course_run_id, output_path=output_path)
@@ -199,9 +213,16 @@ class CourseGenerationPipelineRunner:
                 content_type="application/json",
             )
             self.db.commit()
-            self._activity(
-                job_id, "Documents processed — indexing source content for retrieval."
-            )
+
+            with traced_workflow(
+                "source_processing",
+                run_id=job_id,
+                doc_name=spec.course_title or f"job_{job_id}",
+                metadata={"source_count": source_count},
+            ):
+                self._activity(
+                    job_id, "Documents processed — indexing source content for retrieval."
+                )
 
             kernel = create_kernel()
             reporter = _PipelineStageReporter(self.db, job_id)

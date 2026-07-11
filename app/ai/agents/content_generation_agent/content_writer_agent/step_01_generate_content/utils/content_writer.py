@@ -25,6 +25,7 @@ import json_repair
 from semantic_kernel import Kernel
 
 from app.kernel.chat import chat as kernel_chat
+from app.tracing import set_generation_label
 from ...config.llm import AGENT_CONFIG
 from ..constants.prompts import (
     build_lesson_system_prompt,
@@ -286,6 +287,8 @@ def _generate_lesson_single_call(
 
     for attempt in range(1, retries + 1):
         try:
+            lesson_title = (lesson.get("title") or lesson.get("heading") or "lesson").strip()
+            set_generation_label(f"content generate · {lesson_title}")
             raw = kernel_chat(kernel, system_prompt, user_msg, AGENT_CONFIG, "A2")
             sections_data = _parse_llm_json_array(raw)
 

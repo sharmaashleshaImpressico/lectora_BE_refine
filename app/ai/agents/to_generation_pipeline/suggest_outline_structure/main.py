@@ -9,7 +9,7 @@ Langfuse tracing
 ────────────────
 Each run gets a unique run_id (``outline-suggest-<8 hex chars>``). The LLM
 call is traced automatically by the shared ``chat()`` wrapper. A parent span
-wraps the full agent run and ``flush_langfuse()`` is called before returning.
+wraps the full agent run; root ``traced_workflow`` flushes on exit.
 """
 from __future__ import annotations
 
@@ -31,11 +31,7 @@ from app.ai.agents.to_generation_pipeline.suggest_outline_structure.prompts impo
     SYSTEM_PROMPT,
 )
 from app.kernel.chat import chat as llm_chat
-from app.ai.shared_llm_config.tracer import (
-    flush_langfuse,
-    set_run_context,
-    span_context,
-)
+from app.tracing import traced_workflow
 
 logger = logging.getLogger(__name__)
 
@@ -137,18 +133,14 @@ class OutlineStructureSuggestionAgent:
     ) -> OutlineStructureSuggestionOutput:
         run_id = f"outline-suggest-{_uuid.uuid4().hex[:8]}"
         doc_name = input_data.course_title or "outline-suggestion"
-        set_run_context(run_id, doc_name)
-
-        try:
-            with span_context(
-                name="Outline Structure Suggestion | suggest chapters/style",
-                agent="SUGGEST_OUTLINE_STRUCTURE",
-                input_data={
-                    "course_title": input_data.course_title,
-                    "course_type": input_data.course_type,
-                    "skill_level": input_data.skill_level,
-                },
-            ):
-                return _execute(self._kernel, input_data)
-        finally:
-            flush_langfuse()
+        with traced_workflow(
+            "suggest_outline_structure",
+            run_id=run_id,
+            doc_name=doc_name,
+            input_data={
+                "course_title": input_data.course_title,
+                "course_type": input_data.course_type,
+                "skill_level": input_data.skill_level,
+            },
+        ):
+            return _execute(self._kernel, input_data)

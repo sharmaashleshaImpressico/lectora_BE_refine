@@ -7,7 +7,7 @@ from typing import Any
 from semantic_kernel import Kernel
 
 from app.ai.rule_pack_config.prune import prune_empty_payload_values
-from app.ai.shared_llm_config.tracer import write_s1_semantic_langfuse_trace
+from app.ai.shared_llm_config.tracer import write_s1_semantic_trace
 
 from ...constants.validation import (
     S1_DIGEST_SECTION_CONTENT_MAX_CHARS,
@@ -385,7 +385,7 @@ class AIOutlineValidator:
             AIOutlineValidator._merge_required_topic_findings(result, det_issues, det_missing)
             issue_dicts = AIOutlineValidator._result_to_issue_dicts(result)
             issue_dicts = AIOutlineValidator._filter_out_of_scope_issues(issue_dicts)
-            write_s1_semantic_langfuse_trace(
+            write_s1_semantic_trace(
                 deployment=validator.last_deployment,
                 system_prompt=validator.last_system_prompt,
                 user_msg=validator.last_user_msg,

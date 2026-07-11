@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import json
 import logging
-import time
 
 from app.ai.agents.required_topic.models import RTPipelineMetadata
 from app.ai.agents.required_topic.config.llm import (
@@ -23,7 +22,6 @@ from app.ai.agents.required_topic.rt_generation.prompts import (
 from semantic_kernel import Kernel
 
 from app.kernel.chat import chat_async
-from app.ai.shared_llm_config.tracer import write_span
 
 logger = logging.getLogger(__name__)
 
@@ -73,42 +71,19 @@ class RTGenerationAgent:
             meta.course_type,
         )
 
-        t_start = time.perf_counter()
-        _error: str | None = None
-        topics: list[str] = []
+        raw = await chat_async(
+            self._kernel,
+            SYSTEM_PROMPT,
+            user_msg,
+            config,
+            "RT_GEN",
+        )
+        data = json.loads(raw)
 
-        try:
-            raw = await chat_async(
-                self._kernel,
-                SYSTEM_PROMPT,
-                user_msg,
-                config,
-                "RT_GEN",
-            )
-            data = json.loads(raw)
+        topics = data.get("required_topics") or []
+        if not isinstance(topics, list):
+            topics = []
+        topics = [str(t).strip() for t in topics if t]
 
-            topics = data.get("required_topics") or []
-            if not isinstance(topics, list):
-                topics = []
-            topics = [str(t).strip() for t in topics if t]
-
-            logger.info("[rt_generation] Generated %d topics", len(topics))
-            return RTGenerationOutput(topics=topics)
-        except Exception as exc:
-            _error = str(exc)
-            raise
-        finally:
-            write_span(
-                name="RT Generation | generate required topics",
-                agent="RT_GEN",
-                latency_ms=(time.perf_counter() - t_start) * 1000,
-                input_data={
-                    "course_title": meta.course_title or None,
-                    "course_type": meta.course_type or None,
-                    "course_duration": meta.course_duration or None,
-                    "target_audience": meta.target_audience or None,
-                    "skill_level": meta.skill_level or None,
-                },
-                output_data={"topics_count": len(topics), "error": _error},
-                error=_error,
-            )
+        logger.info("[rt_generation] Generated %d topics", len(topics))
+        return RTGenerationOutput(topics=topics)

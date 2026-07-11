@@ -30,6 +30,12 @@ async def lifespan(app: FastAPI):
     course_generation_worker.start()
     yield
     course_generation_worker.stop()
+    try:
+        from app.tracing import shutdown_tracing
+
+        shutdown_tracing()
+    except Exception:
+        logger.warning("Tracing shutdown failed", exc_info=True)
     logger.info("Shutting down")
 
 

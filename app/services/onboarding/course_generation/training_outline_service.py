@@ -11,6 +11,7 @@ to produce the enriched `CourseSpec`.
 from __future__ import annotations
 
 import logging
+import re
 from datetime import datetime, timezone
 from typing import Any
 
@@ -30,6 +31,7 @@ from app.ai.agents.to_generation_pipeline.step_04_enrich_outline.orchestrator.pi
 from app.ai.agents.to_generation_pipeline.step_01_parse_and_generate_outline.finalize_output.utils.normalize_llm_outline_schema import (
     normalize_llm_to_outline_schema,
 )
+from app.tracing import traced_workflow
 
 logger = logging.getLogger(__name__)
 
@@ -137,12 +139,26 @@ def enrich_training_outline_to_course_spec(
         course_title,
     )
 
-    output = A1PipelineRunner(kernel).run(
-        a0_result,
-        docx_path="",
-        feedback=None,
-        prefer_a0_outline=True,
-    )
+    doc_name = re.sub(
+        r"[^\w.\-]+", "_", (course_title or "").strip(), flags=re.UNICODE
+    ).strip("._") or "outline_enrichment"
+
+    with traced_workflow(
+        "outline_enrichment",
+        run_id=run_id,
+        session_id=run_id,
+        course_run_id=run_id,
+        course_id=course_id,
+        doc_name=doc_name,
+        metadata={"course_title": course_title},
+        input_data={"course_title": course_title},
+    ):
+        output = A1PipelineRunner(kernel).run(
+            a0_result,
+            docx_path="",
+            feedback=None,
+            prefer_a0_outline=True,
+        )
 
     if output.status != A1Status.complete or output.course_spec is None:
         raise TrainingOutlineEnrichmentError(

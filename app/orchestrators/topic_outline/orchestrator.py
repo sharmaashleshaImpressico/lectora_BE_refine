@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import threading
 from typing import Any
 
@@ -28,11 +29,17 @@ from app.orchestrators.topic_outline.models import (
     TimedOutlineGenerationInput,
     TimedOutlineGenerationResult,
 )
+from app.tracing import traced_workflow
 
 logger = logging.getLogger(__name__)
 
 _MAX_REPAIR_ATTEMPTS = 2
 _PASSING_STATUSES = {"pass", "pass_with_warnings"}
+
+
+def _doc_name(title: str | None, fallback: str) -> str:
+    s = re.sub(r"[^\w.\-]+", "_", (title or "").strip(), flags=re.UNICODE).strip("._")
+    return s or fallback
 
 
 def _issues_as_dicts(issues: list[Any]) -> list[dict[str, Any]]:
@@ -196,6 +203,26 @@ class TopicOutlineOrchestrator:
             wizard_prompt_context=wizard_prompt_context,
             cancel_event=cancel_event,
         )
+        doc_name = generation_agent._resolve_trace_doc_name()
+        if wizard_course_title:
+            doc_name = _doc_name(wizard_course_title, doc_name)
+
+        with traced_workflow(
+            "topic_outline",
+            run_id=generation_agent.run_id,
+            doc_name=doc_name,
+            metadata={"course_title": wizard_course_title},
+            input_data={
+                "course_title": wizard_course_title,
+                "difficulty": course_difficulty,
+            },
+        ):
+            return self._execute_pipeline(generation_agent)
+
+    def _execute_pipeline(
+        self,
+        generation_agent: A0RequestSynthesizer,
+    ) -> TimedOutlineGenerationResult:
         a0_result = generation_agent.run()
         current_outline = a0_result.llm_to_outline or {}
 
@@ -209,7 +236,8 @@ class TopicOutlineOrchestrator:
             kernel=self.kernel,
             shared_state=shared_state,
         )
-        validation = validator_agent.run()
+        with traced_workflow("S1"):
+            validation = validator_agent.run()
 
         if validation.status in _PASSING_STATUSES:
             return TimedOutlineGenerationResult(
@@ -230,12 +258,13 @@ class TopicOutlineOrchestrator:
                 len(current_issues),
             )
 
-            refinement = self.refinement_agent.run(
-                S1RefinementInput(
-                    current_outline=current_outline,
-                    issues=_refinement_issues(current_issues),
+            with traced_workflow("S1_TO_REFINE"):
+                refinement = self.refinement_agent.run(
+                    S1RefinementInput(
+                        current_outline=current_outline,
+                        issues=_refinement_issues(current_issues),
+                    )
                 )
-            )
 
             if not refinement.applied:
                 logger.warning(
@@ -249,7 +278,8 @@ class TopicOutlineOrchestrator:
             # original one — this replaces what used to be a re-read/re-write
             # of shared_state.json on disk between repair attempts.
             shared_state["llm_to_outline_classification"] = current_outline
-            validation = validator_agent.run()
+            with traced_workflow("S1"):
+                validation = validator_agent.run()
             current_issues = validation.issues
 
             if validation.status in _PASSING_STATUSES:

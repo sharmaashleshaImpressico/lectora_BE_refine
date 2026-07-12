@@ -175,6 +175,7 @@ def generate_course_content(
     source_file_specs: list[dict] | None = None,
     feedback: str | None = None,
     lesson_gate_hook: LessonGateHook | None = None,
+    rule_pack: dict | None = None,
 ) -> A2Output:
     """Generate study-guide content for every lesson in ``enriched_sections``.
 
@@ -188,11 +189,15 @@ def generate_course_content(
 
     effective_special_instructions = _build_source_guidance(special_instructions, source_file_specs)
 
-    rule_pack = resolve_content_rule_pack_from_shared_state(
-        {"course_difficulty": course_difficulty},
-        purpose="write",
-        difficulty_override=course_difficulty,
-    )
+    # The content-generation orchestrator resolves the course's rule pack once
+    # (from rule_pack_config, keyed by the run's rule family) and passes it in;
+    # resolving here is only the fallback for direct callers.
+    if rule_pack is None:
+        rule_pack = resolve_content_rule_pack_from_shared_state(
+            {"course_difficulty": course_difficulty},
+            purpose="write",
+            difficulty_override=course_difficulty,
+        )
     if not rule_pack:
         raise RuntimeError(f"Could not resolve rule pack for difficulty {course_difficulty!r}")
 

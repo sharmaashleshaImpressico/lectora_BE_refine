@@ -14,7 +14,14 @@ class GenerateTimedOutlineRequest(BaseModel):
     courseTitle: str = Field(..., min_length=1)
     courseDescription: str = Field(..., min_length=1)
     durationHours: float = Field(..., gt=0)
-    calculatedWordCount: int = Field(..., gt=0)
+    calculatedWordCount: int | None = Field(
+        default=None,
+        gt=0,
+        description=(
+            "Optional target word count. Derived server-side from durationHours "
+            "+ difficulty when omitted; send only to override the calculation."
+        ),
+    )
     audience: str = Field(..., min_length=1)
     learningObjectives: list[str] = Field(..., min_length=1)
     requiredTopics: list[str] = Field(..., min_length=1)
@@ -43,6 +50,18 @@ class GenerateTimedOutlineResponse(BaseModel):
     validationPassed: bool
     repairAttempts: int
     finalIssues: list[dict[str, Any]]
+    ruleFamily: str | None = Field(
+        default=None,
+        description="Normalized rule-family key resolved from the course type (e.g. insurance_ce)",
+    )
+    rulePack: dict[str, Any] | None = Field(
+        default=None,
+        description=(
+            "The complete content-generation rule pack selected from rule_pack_config "
+            "for this course type. Distinct from the Timed-Outline validation rule pack, "
+            "which is internal to TO validation."
+        ),
+    )
 
 
 class RegenerateTimedOutlineRequest(BaseModel):

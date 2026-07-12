@@ -14,12 +14,16 @@ import logging
 
 from sqlalchemy.orm import Session
 
+from app.ai.rule_pack_config import normalize_rule_family_key
 from app.core.storage.blob_file_resolver import BlobResolutionError, resolve_source_path
 from app.models.onboarding.course_run.course_run_input import CourseRunInput
 from app.orchestrators.content_generation.orchestrator import ContentGenerationInput
 from app.repositories.course_basic.course_repository import CourseRepository
 from app.repositories.course_run.course_run_input_repository import CourseRunInputRepository
 from app.repositories.course_run.course_run_repository import CourseRunRepository
+from app.repositories.course_run.course_run_rule_override_repository import (
+    CourseRunRuleOverrideRepository,
+)
 from app.repositories.course_run.course_run_spec_repository import CourseRunSpecRepository
 from app.services.onboarding.course_generation.artifact_service import ArtifactsBlobClient
 
@@ -45,6 +49,7 @@ class CourseGenerationDataLoader:
         self.course_run_repository = CourseRunRepository(db)
         self.spec_repository = CourseRunSpecRepository(db)
         self.input_repository = CourseRunInputRepository(db)
+        self.rule_override_repository = CourseRunRuleOverrideRepository(db)
 
     def load(self, course_run_id: str, *, output_path: str | None = None) -> ContentGenerationInput:
         course_run = self.course_run_repository.get_by_id(course_run_id)
@@ -80,6 +85,16 @@ class CourseGenerationDataLoader:
             special_instructions=spec.avoid_instructions if spec else None,
             course_config=_spec_to_dict(spec),
             source_file_specs=[_input_to_spec(item) for item in inputs],
+            # Rule family for content generation/validation — recovered from the
+            # rule pack the run was created with (spec.rule_pack_id, persisted by
+            # the frontend from the /generate-to response). None (legacy runs /
+            # unknown ids) keeps the previous default rule-pack behavior.
+            rule_family=_resolve_rule_family(spec, course),
+            # User rule-pack edits from the frontend rules editor, persisted as
+            # CourseRunRuleOverride rows when the run was submitted. Applied on
+            # top of the resolved pack — user-edited values are the source of
+            # truth over rule-pack defaults.
+            rule_overrides=self._load_rule_overrides(course_run_id),
             output_path=output_path,
             # Section Mapper retrieval filters indexed chunks by `course_id`, but the
             # ingestion pipeline stores `course_id` as the *upload folder slug*
@@ -134,6 +149,34 @@ class CourseGenerationDataLoader:
         except BlobResolutionError:
             return resolve_source_path(blob_path, blob_client=ArtifactsBlobClient())
 
+    def _load_rule_overrides(self, course_run_id: str) -> dict | None:
+        """Collapse this run's rule-override rows into ``{dot.path: value}``.
+
+        Rows are ordered by id, so a later save of the same rule wins. Values
+        are stored JSON-encoded by the API; rows whose value fails to parse
+        are skipped (logged) rather than failing the job. A ``null`` override
+        (field cleared in the editor) is treated as "not provided" — the rule
+        pack default stays in effect.
+        """
+        overrides: dict[str, object] = {}
+        for row in self.rule_override_repository.list_by_course_run(course_run_id):
+            if not row.rule_name or row.override_value_json is None:
+                continue
+            try:
+                value = json.loads(row.override_value_json)
+                if value is None:
+                    overrides.pop(row.rule_name, None)
+                    continue
+                overrides[row.rule_name] = value
+            except json.JSONDecodeError:
+                logger.warning(
+                    "[course_generation] Skipping rule override %r for course_run %s — "
+                    "override_value_json is not valid JSON.",
+                    row.rule_name,
+                    course_run_id,
+                )
+        return overrides or None
+
     def _resolve_docx_path(self, inputs: list[CourseRunInput]) -> str:
         primary = next((item for item in inputs if item.input_type in DOCX_INPUT_TYPES), None)
         primary = primary or next(
@@ -170,6 +213,20 @@ def _resolve_ingest_scope_course_id(inputs: list[CourseRunInput]) -> str | None:
     if len(folders) == 1:
         return next(iter(folders))
     return None
+
+
+def _resolve_rule_family(spec, course) -> str | None:
+    """Recover the run's rule family for content generation/validation.
+
+    Prefers the rule pack persisted on the spec (``rule_pack_id`` accepts a
+    pack id or family key); falls back to the course's ``course_type`` label
+    so runs created before the frontend sent ``rule_pack_id`` still resolve.
+    Returns ``None`` when neither is recognized.
+    """
+    family = normalize_rule_family_key(spec.rule_pack_id if spec else None)
+    if family:
+        return family
+    return normalize_rule_family_key(course.course_type if course else None)
 
 
 def _parse_json_list(raw: str | None) -> list[str]:

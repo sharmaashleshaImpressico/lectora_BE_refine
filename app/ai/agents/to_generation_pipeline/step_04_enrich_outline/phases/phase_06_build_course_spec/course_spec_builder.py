@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from app.ai.rule_pack_config.rule_packs import resolve_rule_pack
+from app.ai.rule_pack_config.course_packs import resolve_course_rule_pack
 from app.ai.shared_utils.interactive_elements import (
     collect_interactive_elements,
     resolve_section_assets,
@@ -39,8 +39,8 @@ class CourseSpecBuilder(BaseA1Node):
             .get("rule_classification", {})
             .get("family")
         )
-        difficulty = state["a0_data"].get("course_difficulty")
-        rule_pack = resolve_rule_pack(rule_family, difficulty) if rule_family else None
+        resolved = resolve_course_rule_pack(rule_family=rule_family) if rule_family else None
+        rule_pack = resolved[1] if resolved else None
         words_per_minute = TextUtils.wpm_from_rule_pack(rule_pack or {}, default=180)
         logger.info("[A1] Pacing: %s words/min (derived from rule pack)", words_per_minute)
 

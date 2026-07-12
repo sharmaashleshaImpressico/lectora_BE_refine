@@ -195,7 +195,7 @@ def build_lesson_system_prompt(rule_pack: dict, audience: str = "", course_confi
     if not fam:
         raise ValueError(
             "rule_pack must contain a non-empty 'family' key — "
-            "ensure resolve_rule_pack() was called before building the system prompt."
+            "ensure resolve_course_rule_pack() was called before building the system prompt."
         )
     ver = rule_pack.get("version", "")
     meta = f"{fam} v{ver}" if ver else fam

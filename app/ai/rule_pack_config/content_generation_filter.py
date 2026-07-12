@@ -3,12 +3,19 @@
 ``context`` is a plain dict assembled by the caller (e.g. the content
 generation orchestrator) — it is not required to be a ``shared_state.json``
 document. Recognized keys: ``course_difficulty``, ``rule_family``.
+
+When ``rule_family`` resolves to one of the real course-type packs in
+``rule_pack_config/packs/`` (insurance_ce / iarce / firm_element), that pack
+is returned — layered over the per-difficulty base so difficulty-view keys
+(``active_difficulty``, ``style_constraints``, …) stay available to existing
+consumers. Unknown/absent families keep the previous placeholder behavior.
 """
 
 from __future__ import annotations
 
 from typing import Any
 
+from .course_packs import resolve_course_rule_pack
 from .rule_packs import DEFAULT_FAMILY, RULE_PACKS
 
 _VALID_DIFFICULTIES = ("basic", "intermediate", "advanced")
@@ -26,7 +33,7 @@ def resolve_content_rule_pack_from_shared_state(
         context: Plain dict carrying at least ``course_difficulty`` and,
             optionally, ``rule_family``.
         purpose: ``"write"`` or ``"validate"`` — recorded for logging only
-            today (the placeholder rule packs don't vary by purpose).
+            today (the rule packs don't vary by purpose).
         difficulty_override: Explicit difficulty, takes precedence over
             ``context["course_difficulty"]``.
     """
@@ -38,10 +45,20 @@ def resolve_content_rule_pack_from_shared_state(
     if difficulty not in _VALID_DIFFICULTIES:
         difficulty = "intermediate"
 
-    family_packs = RULE_PACKS.get(family) or RULE_PACKS.get(DEFAULT_FAMILY)
-    if not family_packs:
-        return None
-    return family_packs.get(difficulty) or family_packs.get("intermediate")
+    base_packs = RULE_PACKS.get(family) or RULE_PACKS.get(DEFAULT_FAMILY)
+    base = (base_packs.get(difficulty) or base_packs.get("intermediate")) if base_packs else None
+
+    # Real course-type pack from rule_pack_config/packs — the single source
+    # of truth for content generation/validation rules.
+    resolved = resolve_course_rule_pack(rule_family=family)
+    if resolved is not None:
+        family_key, course_pack = resolved
+        merged: dict[str, Any] = {**(base or {}), **course_pack}
+        merged["family_key"] = family_key
+        merged["active_difficulty"] = difficulty
+        return merged
+
+    return base
 
 
 __all__ = ["resolve_content_rule_pack_from_shared_state"]

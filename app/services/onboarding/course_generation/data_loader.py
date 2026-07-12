@@ -14,6 +14,7 @@ import logging
 
 from sqlalchemy.orm import Session
 
+from app.ai.rule_pack_config import normalize_rule_family_key
 from app.core.storage.blob_file_resolver import BlobResolutionError, resolve_source_path
 from app.models.onboarding.course_run.course_run_input import CourseRunInput
 from app.orchestrators.content_generation.orchestrator import ContentGenerationInput
@@ -80,6 +81,11 @@ class CourseGenerationDataLoader:
             special_instructions=spec.avoid_instructions if spec else None,
             course_config=_spec_to_dict(spec),
             source_file_specs=[_input_to_spec(item) for item in inputs],
+            # Rule family for content generation/validation — recovered from the
+            # rule pack the run was created with (spec.rule_pack_id, persisted by
+            # the frontend from the /generate-to response). None (legacy runs /
+            # unknown ids) keeps the previous default rule-pack behavior.
+            rule_family=_resolve_rule_family(spec, course),
             output_path=output_path,
             # Section Mapper retrieval filters indexed chunks by `course_id`, but the
             # ingestion pipeline stores `course_id` as the *upload folder slug*
@@ -170,6 +176,20 @@ def _resolve_ingest_scope_course_id(inputs: list[CourseRunInput]) -> str | None:
     if len(folders) == 1:
         return next(iter(folders))
     return None
+
+
+def _resolve_rule_family(spec, course) -> str | None:
+    """Recover the run's rule family for content generation/validation.
+
+    Prefers the rule pack persisted on the spec (``rule_pack_id`` accepts a
+    pack id or family key); falls back to the course's ``course_type`` label
+    so runs created before the frontend sent ``rule_pack_id`` still resolve.
+    Returns ``None`` when neither is recognized.
+    """
+    family = normalize_rule_family_key(spec.rule_pack_id if spec else None)
+    if family:
+        return family
+    return normalize_rule_family_key(course.course_type if course else None)
 
 
 def _parse_json_list(raw: str | None) -> list[str]:

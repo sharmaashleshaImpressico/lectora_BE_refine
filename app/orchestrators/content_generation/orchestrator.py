@@ -427,6 +427,7 @@ class ContentGenerationOrchestrator:
                 course_config=spec.course_config,
                 source_file_specs=spec.source_file_specs,
                 lesson_gate_hook=_lesson_gate,
+                rule_pack=rule_pack,
             )
         reporter.complete(
             "A2",

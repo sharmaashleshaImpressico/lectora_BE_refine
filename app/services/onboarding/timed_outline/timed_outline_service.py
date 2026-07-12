@@ -6,6 +6,7 @@ import threading
 
 from semantic_kernel import Kernel
 
+from app.ai.rule_pack_config import DEFAULT_COURSE_RULE_FAMILY, resolve_course_rule_pack
 from app.ai.agents.to_generation_pipeline.regenerate_outline.main import (
     TORegenerationAgent,
 )
@@ -52,12 +53,37 @@ class TimedOutlineService:
         _cancel_event.clear()
         input_data = self._to_generation_input(request)
         result = self._orchestrator.generate_timed_outline(input_data, cancel_event=_cancel_event)
+
+        # Content-generation rule pack for this course type, from
+        # rule_pack_config (single source of truth). Returned so the frontend
+        # can display it and persist it with the course run. This is NOT the
+        # Timed-Outline validation pack — that one stays internal to S1.
+        rule_family, rule_pack = self._resolve_course_rule_pack(request)
+
         return GenerateTimedOutlineResponse(
             timedOutline=result.outline,
             validationPassed=result.validation_passed,
             repairAttempts=result.repair_attempts,
             finalIssues=result.final_issues,
+            ruleFamily=rule_family,
+            rulePack=rule_pack,
         )
+
+    @staticmethod
+    def _resolve_course_rule_pack(
+        request: GenerateTimedOutlineRequest,
+    ) -> tuple[str, dict]:
+        """Pick the course-type rule pack for the response.
+
+        Mirrors the pipeline's precedence: an explicit ``ruleFamily`` wins,
+        otherwise the course type selected in the wizard; unknown values fall
+        back to the same default family A0 classification uses.
+        """
+        resolved = resolve_course_rule_pack(
+            course_type=request.courseTypeHint,
+            rule_family=request.ruleFamily,
+        ) or resolve_course_rule_pack(rule_family=DEFAULT_COURSE_RULE_FAMILY)
+        return resolved
 
     @staticmethod
     def cancel_generate_to() -> None:

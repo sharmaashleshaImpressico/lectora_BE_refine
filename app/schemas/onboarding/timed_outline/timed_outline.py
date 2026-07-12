@@ -43,6 +43,18 @@ class GenerateTimedOutlineResponse(BaseModel):
     validationPassed: bool
     repairAttempts: int
     finalIssues: list[dict[str, Any]]
+    ruleFamily: str | None = Field(
+        default=None,
+        description="Normalized rule-family key resolved from the course type (e.g. insurance_ce)",
+    )
+    rulePack: dict[str, Any] | None = Field(
+        default=None,
+        description=(
+            "The complete content-generation rule pack selected from rule_pack_config "
+            "for this course type. Distinct from the Timed-Outline validation rule pack, "
+            "which is internal to TO validation."
+        ),
+    )
 
 
 class RegenerateTimedOutlineRequest(BaseModel):

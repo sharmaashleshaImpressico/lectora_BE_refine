@@ -50,7 +50,14 @@ class AzureBlobClient:
             )
         return self._client
 
-    def upload_bytes(self, blob_path: str, content: bytes, *, content_type: str) -> None:
+    def upload_bytes(
+        self,
+        blob_path: str,
+        content: bytes,
+        *,
+        content_type: str,
+        overwrite: bool = True,
+    ) -> None:
         """Upload bytes to the configured container."""
         blob_client = (
             self._service_client()
@@ -59,14 +66,15 @@ class AzureBlobClient:
         )
         blob_client.upload_blob(
             content,
-            overwrite=True,
+            overwrite=overwrite,
             content_settings=ContentSettings(content_type=content_type),
         )
         logger.info(
-            "[blob] Uploaded %s (%d bytes) to container %s",
+            "[blob] Uploaded %s (%d bytes) to container %s (overwrite=%s)",
             blob_path,
             len(content),
             self.container_name,
+            overwrite,
         )
 
     def exists(self, blob_path: str) -> bool:

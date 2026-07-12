@@ -10,11 +10,11 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.concurrency import run_in_threadpool
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response, StreamingResponse
 from semantic_kernel import Kernel
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_db, get_kernel
+from app.api.deps import get_db, get_kernel, get_save_to_azure_service
 from app.core.auth.dependencies import get_current_user_name, require_valid_token
 from app.db.session import azure_db_client
 from app.models.course_generation.course_generation_job.constants import (
@@ -22,8 +22,14 @@ from app.models.course_generation.course_generation_job.constants import (
     JOB_STATUS_COMPLETED,
     JOB_STATUS_FAILED,
 )
+from app.repositories.course_generation.course_content_version_repository import (
+    VersionAllocationError,
+)
 from app.repositories.course_generation.course_generation_job_repository import (
     CourseGenerationJobRepository,
+)
+from app.schemas.onboarding.course_generation_job.course_content_snapshot import (
+    RenderDocxRequest,
 )
 from app.schemas.onboarding.course_generation_job.job import (
     CancelJobResponse,
@@ -32,14 +38,36 @@ from app.schemas.onboarding.course_generation_job.job import (
     GenerateCourseRequest,
 )
 from app.schemas.onboarding.course_generation_job.job_detail import JobDetailResponse
+from app.schemas.onboarding.course_generation_job.save_to_azure import (
+    SaveToAzureMetaResponse,
+    SaveToAzureRequest,
+    SaveToAzureResponse,
+)
 from app.services.onboarding.course_generation.course_content_service import (
+    CourseContentConsistencyError,
     CourseContentNotFoundError,
     CourseContentService,
+)
+from app.services.onboarding.course_generation.docx_render_service import (
+    DocxRenderService,
+    EmptyCourseContentError,
+)
+from app.services.onboarding.course_generation.editor_course_transformation_service import (
+    EditorCourseTransformationError,
 )
 from app.services.onboarding.course_generation.job_progress_service import JobProgressService
 from app.services.onboarding.course_generation.job_service import (
     CourseGenerationJobService,
     JobNotCancellableError,
+)
+from app.services.onboarding.course_generation.save_to_azure_service import (
+    CourseContextNotFoundError,
+    JobNotFoundError,
+    JobNotSavableError,
+    SaveToAzureError,
+    SaveToAzureFailedError,
+    SaveToAzureResult,
+    SaveToAzureService,
 )
 from app.services.onboarding.course_generation.training_outline_service import (
     TrainingOutlineEnrichmentError,
@@ -125,12 +153,12 @@ def get_job_detail(job_id: str, db: Session = Depends(get_db)) -> JobDetailRespo
 def get_job_course(job_id: str, db: Session = Depends(get_db)) -> dict:
     """The generated course for a completed job, in the editor's `CourseContent` shape.
 
-    Reads the `course_content.json` artifact (rich A2 writer output) the pipeline
-    persisted on completion — falling back to `enriched_sections.json` for jobs
-    generated before that artifact existed — and maps it to the camelCase payload
-    the frontend editor binds to. Returns 404 when no content exists yet (job not
-    finished / failed before writing one), which the editor treats as an
-    expired job.
+    Loads the latest AVAILABLE content version when present, otherwise the flat
+    `course_content.json` artifact (rich A2 writer output), falling back to
+    `enriched_sections.json` for older jobs. Maps to the camelCase payload the
+    frontend editor binds to. Returns 404 when no content exists yet; returns
+    502 when the latest AVAILABLE version metadata points to a missing/corrupt
+    blob (no silent fallback to older versions).
     """
     job = CourseGenerationJobRepository(db).get_by_id(job_id)
     if job is None:
@@ -140,11 +168,148 @@ def get_job_course(job_id: str, db: Session = Depends(get_db)) -> dict:
         return CourseContentService(db).get_course_content(job_id)
     except CourseContentNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
+    except CourseContentConsistencyError as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
     except Exception:
         logger.exception("Failed to load generated course for job %s", job_id)
         raise HTTPException(
             status_code=500, detail="Could not load the generated course. Please try again."
         )
+
+
+@router.post("/jobs/{job_id}/artifacts/render-docx")
+def render_job_docx(
+    job_id: str,
+    payload: RenderDocxRequest,
+    db: Session = Depends(get_db),
+) -> Response:
+    """Render a study-guide DOCX from the submitted editor snapshot (no persistence).
+
+    The request body is the sole source of truth for document content. This route
+    performs a read-only job existence check for route consistency, then maps the
+    snapshot and returns DOCX bytes. It does not sync course content, write
+    artifacts, update the job, create versions, or upload to Azure.
+    """
+    job = CourseGenerationJobRepository(db).get_by_id(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail=f"Job '{job_id}' not found.")
+
+    try:
+        rendered = DocxRenderService().render(payload)
+    except EmptyCourseContentError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception:
+        logger.exception("Failed to render DOCX for job %s", job_id)
+        raise HTTPException(
+            status_code=500,
+            detail="Could not render the course document. Please try again.",
+        )
+
+    return Response(
+        content=rendered.content,
+        media_type=rendered.media_type,
+        headers={
+            "Content-Disposition": f'attachment; filename="{rendered.filename}"',
+        },
+    )
+
+
+@router.post(
+    "/jobs/{job_id}/artifacts/save-to-azure",
+    response_model=SaveToAzureResponse,
+    response_model_by_alias=True,
+)
+def save_job_artifact_to_azure(
+    job_id: str,
+    payload: SaveToAzureRequest,
+    current_user: str = Depends(get_current_user_name),
+    service: SaveToAzureService = Depends(get_save_to_azure_service),
+) -> SaveToAzureResponse:
+    """Persist an editor snapshot as an immutable study-guide version and upload to Azure.
+
+    Performs transform + DOCX render + versioned upload in one call. Does not
+    require a separate ``/course/sync``. Pipeline Version 1 is ensured (seeded or
+    lazily backfilled) before the editor version is reserved, so the first
+    successful editor save is Version 2 when original pipeline artifacts exist.
+    """
+    try:
+        result = service.save(
+            job_id=job_id,
+            course_snapshot=payload.course,
+            course_slug=payload.course_slug,
+            created_by=current_user,
+        )
+    except JobNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except CourseContextNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except CourseContentNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except JobNotSavableError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except VersionAllocationError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail="Could not allocate a unique content version. Please retry.",
+        ) from exc
+    except EditorCourseTransformationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except SaveToAzureFailedError as exc:
+        logger.exception(
+            "Save-to-Azure failed for job %s (version_id=%s version_number=%s)",
+            job_id,
+            exc.version_id,
+            exc.version_number,
+        )
+        raise HTTPException(
+            status_code=502,
+            detail="Could not save the course to Azure. Please try again.",
+        ) from exc
+    except SaveToAzureError as exc:
+        logger.exception("Save-to-Azure application error for job %s", job_id)
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    except Exception:
+        logger.exception("Unexpected Save-to-Azure failure for job %s", job_id)
+        raise HTTPException(
+            status_code=500,
+            detail="Could not save the course. Please try again.",
+        )
+
+    return _to_save_to_azure_response(result)
+
+
+def _to_save_to_azure_response(result: SaveToAzureResult) -> SaveToAzureResponse:
+    file_name = (result.docx_blob_path or "").rsplit("/", 1)[-1] or "study_guide.docx"
+    saved_at = result.created_at.isoformat() if result.created_at else None
+    meta = result.meta or {}
+    meta_model = SaveToAzureMetaResponse.model_validate(
+        {
+            "totalWordCount": int(meta.get("totalWordCount") or meta.get("total_word_count") or 0),
+            "sectionCount": int(meta.get("sectionCount") or meta.get("section_count") or 0),
+            "chapterCount": int(meta.get("chapterCount") or meta.get("chapter_count") or 0),
+            "estimatedReadTime": str(
+                meta.get("estimatedReadTime") or meta.get("estimated_read_time") or ""
+            ),
+        }
+    )
+    return SaveToAzureResponse(
+        status="uploaded",
+        job_id=str(result.job_id),
+        file_name=file_name,
+        blob_path=result.docx_blob_path,
+        pdf_blob_path=None,
+        container_name=result.container_hint,
+        saved_at=saved_at,
+        warning=None,
+        version_number=result.version_number,
+        version_id=str(result.version_id),
+        state_blob_path=result.canonical_json_blob_path,
+        course_id=result.course_id,
+        course_run_id=result.course_run_id,
+        canonical_json_blob_path=result.canonical_json_blob_path,
+        docx_blob_path=result.docx_blob_path,
+        meta=meta_model,
+    )
 
 
 # Headers that keep the event stream flowing unbuffered end-to-end: disable

@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+from dataclasses import dataclass
 
 from sqlalchemy.orm import Session
 
@@ -30,10 +31,61 @@ class ArtifactAlreadyExistsError(Exception):
     """Raised when an upload would overwrite a previously stored artifact."""
 
 
-def _slugify_course_title(course_title: str) -> str:
+@dataclass(frozen=True)
+class VersionedArtifactPaths:
+    """Immutable version directory under ``{slug}/{job_id}/v{N}/``."""
+
+    course_slug: str
+    job_id: str
+    version_number: int
+    directory: str
+    canonical_json_blob_path: str
+    docx_blob_path: str
+
+
+def slugify_course_title(course_title: str) -> str:
     """Turn a course title into a safe, stable blob-path segment."""
     slug = re.sub(r"[^a-zA-Z0-9]+", "-", course_title or "").strip("-").lower()
     return slug or "untitled-course"
+
+
+def resolve_course_slug(*, database_title: str, course_slug_hint: str | None = None) -> str:
+    """Prefer the DB course title slug; sanitize optional FE hint as fallback only."""
+    title_slug = slugify_course_title(database_title)
+    hint = (course_slug_hint or "").strip()
+    if not hint:
+        return title_slug
+    # Sanitize aggressively so FE cannot inject directories or raw paths.
+    hint_slug = slugify_course_title(hint.replace("\\", "/").rsplit("/", 1)[-1])
+    if title_slug != "untitled-course":
+        return title_slug
+    return hint_slug
+
+
+def build_versioned_artifact_paths(
+    *,
+    course_slug: str,
+    job_id: int | str,
+    version_number: int,
+) -> VersionedArtifactPaths:
+    """Build version-scoped blob paths (never accept a client-supplied blob path)."""
+    if version_number < 1:
+        raise ValueError(f"version_number must be >= 1, got {version_number}")
+    slug = slugify_course_title(course_slug)
+    job_segment = str(job_id)
+    directory = f"{slug}/{job_segment}/v{version_number}"
+    return VersionedArtifactPaths(
+        course_slug=slug,
+        job_id=job_segment,
+        version_number=version_number,
+        directory=directory,
+        canonical_json_blob_path=f"{directory}/course_content.json",
+        docx_blob_path=f"{directory}/study_guide.docx",
+    )
+
+
+# Backward-compatible private alias.
+_slugify_course_title = slugify_course_title
 
 
 class ArtifactsBlobClient(AzureBlobClient):
@@ -75,7 +127,7 @@ class CourseGenerationArtifactService:
         content_type: str = "application/octet-stream",
     ) -> CourseGenerationJobArtifact:
         """Upload artifact bytes under `<course_title>/<job_id>/<file_name>` and record it."""
-        title_slug = _slugify_course_title(course_title)
+        title_slug = slugify_course_title(course_title)
         blob_path = f"{title_slug}/{job_id}/{file_name}"
 
         if self._blob_client.is_ready():
@@ -99,6 +151,49 @@ class CourseGenerationArtifactService:
         created = self.repository.create(artifact)
         self.db.flush()
         return created
+
+    def upload_bytes_no_overwrite(
+        self,
+        blob_path: str,
+        content: bytes,
+        *,
+        content_type: str,
+    ) -> str:
+        """Upload bytes to an exact blob path, refusing to overwrite existing blobs.
+
+        Does not insert a ``course_generation_job_artifacts`` row — callers that
+        track versions (e.g. ``CourseContentVersion``) own that metadata.
+        Returns the blob path on success.
+        """
+        store = self._blob_client if self._blob_client.is_ready() else self._local_store
+        try:
+            already_exists = store.exists(blob_path)
+        except Exception:
+            logger.exception(
+                "[course_generation] Failed to check for existing artifact | %s", blob_path
+            )
+            raise
+
+        if already_exists:
+            raise ArtifactAlreadyExistsError(
+                f"Artifact already exists at '{blob_path}' — refusing to overwrite."
+            )
+
+        if self._blob_client.is_ready():
+            self._blob_client.upload_bytes(
+                blob_path,
+                content,
+                content_type=content_type,
+                overwrite=False,
+            )
+        else:
+            self._local_store.save_bytes(blob_path, content)
+            logger.warning(
+                "[course_generation] Azure Blob Storage not configured — "
+                "artifact saved locally | %s",
+                blob_path,
+            )
+        return blob_path
 
     def persist_file(
         self,
@@ -140,7 +235,7 @@ class CourseGenerationArtifactService:
         Never overwrites a previous course run's artifacts — each `job_id` gets
         its own folder, and an existing blob at the target path aborts the upload.
         """
-        title_slug = _slugify_course_title(course_title)
+        title_slug = slugify_course_title(course_title)
 
         to_outline_blob_path = f"{title_slug}/{job_id}/{_TO_OUTLINE_FILE_NAME}"
         course_spec_blob_path = f"{title_slug}/{job_id}/{_COURSE_SPEC_FILE_NAME}"
@@ -176,54 +271,10 @@ class CourseGenerationArtifactService:
         blob_path: str,
         payload: dict,
     ) -> CourseGenerationJobArtifact:
-        store = self._blob_client if self._blob_client.is_ready() else self._local_store
-
-        try:
-            already_exists = store.exists(blob_path)
-        except Exception:
-            logger.exception(
-                "[course_generation] Failed to check for existing artifact | %s", blob_path
-            )
-            raise
-
-        if already_exists:
-            # Only refuse when a DB artifact row actually references this
-            # path — that's a genuine previous run. A blob with no DB row is
-            # an orphan (e.g. the dev database was reset while blob/local
-            # storage kept old files, so job ids restarted and collided);
-            # overwriting it loses nothing the system still knows about.
-            recorded = self.repository.get_by(blob_path=blob_path)
-            if recorded is not None:
-                raise ArtifactAlreadyExistsError(
-                    f"Artifact already exists at '{blob_path}' — refusing to overwrite a "
-                    "previous course run's artifacts."
-                )
-            logger.warning(
-                "[course_generation] Blob exists at %s but no artifact row references it "
-                "— treating it as an orphan from a reset database and overwriting.",
-                blob_path,
-            )
-
         content = json.dumps(payload, indent=2, default=str).encode("utf-8")
-
-        try:
-            if self._blob_client.is_ready():
-                self._blob_client.upload_bytes(blob_path, content, content_type="application/json")
-            else:
-                self._local_store.save_bytes(blob_path, content)
-                logger.warning(
-                    "[course_generation] Azure Blob Storage not configured — "
-                    "artifact saved locally | %s",
-                    blob_path,
-                )
-        except Exception:
-            logger.exception(
-                "[course_generation] Failed to upload artifact | job_id=%s course_run_id=%s path=%s",
-                job_id,
-                course_run_id,
-                blob_path,
-            )
-            raise
+        self.upload_bytes_no_overwrite(
+            blob_path, content, content_type="application/json"
+        )
 
         logger.info(
             "[course_generation] Artifact uploaded | job_id=%s course_run_id=%s type=%s path=%s",

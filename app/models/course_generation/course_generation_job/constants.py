@@ -23,6 +23,7 @@ VALIDATION_STATUS_FAILED = "FAILED"
 ARTIFACT_STAGE_CONTENT_GENERATION = "content_generation"
 ARTIFACT_STAGE_VALIDATION = "validation"
 ARTIFACT_STAGE_TO_GENERATION = "to_generation"
+ARTIFACT_STAGE_EDITOR_SAVE = "editor_save"
 
 ARTIFACT_TYPE_SHARED_STATE = "shared_state"
 ARTIFACT_TYPE_STUDY_GUIDE = "study_guide"
@@ -34,6 +35,23 @@ ARTIFACT_TYPE_VALIDATION_REPORT = "validation_report"
 ARTIFACT_TYPE_LOG = "log"
 ARTIFACT_TYPE_TO_OUTLINE = "to_outline"
 ARTIFACT_TYPE_COURSE_SPEC = "course_spec"
+
+# ── Immutable study-guide / course-content versions (per job) ─────────────
+#
+# Distinct from CourseRun.version_number (generation attempts). These track
+# published study-guide snapshots: v1 = pipeline output, v2+ = editor saves.
+CONTENT_VERSION_STATUS_CREATING = "CREATING"
+CONTENT_VERSION_STATUS_AVAILABLE = "AVAILABLE"
+CONTENT_VERSION_STATUS_FAILED = "FAILED"
+
+CONTENT_VERSION_SOURCE_PIPELINE = "PIPELINE"
+CONTENT_VERSION_SOURCE_EDITOR_SAVE = "EDITOR_SAVE"
+
+# Audit identity used when the pipeline seeds Version 1.
+CONTENT_VERSION_CREATED_BY_PIPELINE = "pipeline"
+
+# Soft cap when persisting failure text (column is Text; keep payloads bounded).
+CONTENT_VERSION_ERROR_MESSAGE_MAX_LENGTH = 4000
 
 # ── Pipeline stage tracking (drives the frontend's stage tracker + SSE) ────
 #

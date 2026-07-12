@@ -34,6 +34,7 @@ from app.models.course_generation.course_generation_job.constants import (
     ARTIFACT_TYPE_SHARED_STATE,
     ARTIFACT_TYPE_STUDY_GUIDE,
     ARTIFACT_TYPE_VALIDATION_REPORT,
+    CONTENT_VERSION_CREATED_BY_PIPELINE,
     JOB_STATUS_CANCELLED,
     JOB_STATUS_COMPLETED,
     JOB_STATUS_FAILED,
@@ -48,6 +49,7 @@ from app.orchestrators.content_generation.orchestrator import (
 from app.repositories.course_generation.course_generation_validation_run_repository import (
     CourseGenerationValidationRunRepository,
 )
+from app.repositories.course_run.course_run_repository import CourseRunRepository
 from app.services.onboarding.course_generation.artifact_service import (
     CourseGenerationArtifactService,
 )
@@ -58,6 +60,9 @@ from app.services.onboarding.course_generation.data_loader import (
 )
 from app.services.onboarding.course_generation.job_progress_service import JobProgressService
 from app.services.onboarding.course_generation.job_service import CourseGenerationJobService
+from app.services.onboarding.course_generation.pipeline_version_seed_service import (
+    PipelineVersionSeedService,
+)
 from app.tracing import traced_workflow
 
 logger = logging.getLogger(__name__)
@@ -110,6 +115,8 @@ class CourseGenerationPipelineRunner:
         self.artifacts = CourseGenerationArtifactService(db)
         self.validation_runs = CourseGenerationValidationRunRepository(db)
         self.progress = JobProgressService(db)
+        self.course_runs = CourseRunRepository(db)
+        self.version_seed = PipelineVersionSeedService(db)
 
     def _activity(self, job_id: str, message: str, level: str = LOG_LEVEL_INFO) -> None:
         """Write one human-readable activity-feed entry and commit it.
@@ -244,7 +251,11 @@ class CourseGenerationPipelineRunner:
             # GET /jobs/{job_id}/course. Persisted alongside enriched_sections
             # because the docx/enriched_sections artifacts don't carry the
             # paragraph-block structure the editor binds to.
-            self.artifacts.persist_bytes(
+            #
+            # Paths stay flat (`{slug}/{job_id}/course_content.json`) for
+            # compatibility with artifact browsing/download consumers. Version 1
+            # registers those same paths rather than moving blobs under `v1/`.
+            content_artifact = self.artifacts.persist_bytes(
                 job_id=job_id,
                 course_run_id=course_run_id,
                 course_title=spec.course_title,
@@ -255,8 +266,9 @@ class CourseGenerationPipelineRunner:
                 content_type="application/json",
             )
 
+            study_guide_artifact = None
             if result.study_guide_path:
-                self.artifacts.persist_file(
+                study_guide_artifact = self.artifacts.persist_file(
                     job_id=job_id,
                     course_run_id=course_run_id,
                     course_title=spec.course_title,
@@ -301,6 +313,22 @@ class CourseGenerationPipelineRunner:
                 self.db.commit()
                 return
 
+            # Version 1 = original pipeline generation. Only after both required
+            # artifacts exist and validation passed. Idempotent on retries.
+            if content_artifact is not None and study_guide_artifact is not None:
+                self._seed_pipeline_version_one(
+                    job_id=job_id,
+                    course_run_id=course_run_id,
+                    canonical_json_blob_path=content_artifact.blob_path,
+                    docx_blob_path=study_guide_artifact.blob_path,
+                )
+            else:
+                logger.warning(
+                    "[course_generation] Job %s completed without both "
+                    "course_content.json and study_guide.docx — skipping Version 1 seed.",
+                    job_id,
+                )
+
             self.jobs.mark_completed(
                 job_id,
                 completed_at=datetime.now(timezone.utc),
@@ -308,6 +336,42 @@ class CourseGenerationPipelineRunner:
             )
             self.db.commit()
             logger.info("[course_generation] Job %s completed", job_id)
+
+    def _seed_pipeline_version_one(
+        self,
+        *,
+        job_id: str,
+        course_run_id: str,
+        canonical_json_blob_path: str,
+        docx_blob_path: str,
+    ) -> None:
+        """Register AVAILABLE PIPELINE Version 1 (flush + commit). Never uses reserve_next."""
+        course_run = self.course_runs.get_by_id(course_run_id)
+        if course_run is None:
+            raise CourseRunNotFoundError(
+                f"Course run '{course_run_id}' not found while seeding Version 1."
+            )
+
+        job = self.jobs.repository.get_by_id(job_id)
+        created_by = (
+            (job.requested_by if job is not None else None)
+            or CONTENT_VERSION_CREATED_BY_PIPELINE
+        )
+
+        version = self.version_seed.register_from_paths(
+            job_id=int(job_id),
+            course_id=int(course_run.course_id),
+            course_run_id=int(course_run_id),
+            canonical_json_blob_path=canonical_json_blob_path,
+            docx_blob_path=docx_blob_path,
+            created_by=str(created_by),
+        )
+        self.db.commit()
+        logger.info(
+            "[course_generation] Seeded content Version 1 for job %s (version_id=%s)",
+            job_id,
+            version.id,
+        )
 
     def _persist_validation_run(
         self,

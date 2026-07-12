@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
-from app.core.auth.dependencies import require_valid_token
+from app.core.auth.dependencies import get_current_user_name, require_valid_token
 from app.schemas.onboarding.course_basic.course import (
     CourseBasicCreate,
     CourseBasicData,
@@ -33,11 +33,12 @@ router = APIRouter(
 def create_course_basic(
     payload: CourseBasicCreate,
     db: Session = Depends(get_db),
+    current_user: str = Depends(get_current_user_name),
 ) -> CourseBasicResponse:
     """Create a new course's basic details and auto-generate its id."""
     try:
         service = CourseBasicService(db)
-        course = service.create_course(payload)
+        course = service.create_course(payload, created_by=current_user)
     except Exception:
         logger.exception("Failed to create course basic record")
         raise HTTPException(

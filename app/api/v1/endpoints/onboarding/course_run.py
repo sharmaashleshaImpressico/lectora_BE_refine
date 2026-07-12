@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
-from app.core.auth.dependencies import require_valid_token
+from app.core.auth.dependencies import get_current_user_name, require_valid_token
 from app.schemas.onboarding.course_run.course_run import (
     CourseRunCreate,
     CourseRunData,
@@ -58,6 +58,7 @@ router = APIRouter(
 def create_course_run(
     payload: CourseRunCreate,
     db: Session = Depends(get_db),
+    current_user: str = Depends(get_current_user_name),
 ) -> CourseRunDetailResponse:
     """Create a new run (generation attempt) for a course.
 
@@ -68,7 +69,7 @@ def create_course_run(
     endpoint.
     """
     try:
-        course_run = CourseRunService(db).create_course_run(payload)
+        course_run = CourseRunService(db).create_course_run(payload, created_by=current_user)
         course_run_id = str(course_run.id)
 
         spec = None
@@ -76,12 +77,16 @@ def create_course_run(
             spec = CourseRunSpecService(db).create_spec(payload.spec.to_create(course_run_id))
 
         inputs = [
-            CourseRunInputService(db).create_input(item.to_create(course_run_id))
+            CourseRunInputService(db).create_input(
+                item.to_create(course_run_id), uploaded_by=current_user
+            )
             for item in payload.inputs
         ]
 
         rule_overrides = [
-            CourseRunRuleOverrideService(db).create_override(item.to_create(course_run_id))
+            CourseRunRuleOverrideService(db).create_override(
+                item.to_create(course_run_id), created_by=current_user
+            )
             for item in payload.rule_overrides
         ]
     except (CourseNotFoundError, CourseRunNotFoundError) as exc:
@@ -137,11 +142,12 @@ def create_course_run_spec(
 def create_course_run_input(
     payload: CourseRunInputCreate,
     db: Session = Depends(get_db),
+    current_user: str = Depends(get_current_user_name),
 ) -> CourseRunInputResponse:
     """Record a previously-uploaded source input against a course run."""
     try:
         service = CourseRunInputService(db)
-        course_run_input = service.create_input(payload)
+        course_run_input = service.create_input(payload, uploaded_by=current_user)
     except CourseRunNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
     except Exception:
@@ -162,11 +168,12 @@ def create_course_run_input(
 def create_course_run_rule_override(
     payload: CourseRunRuleOverrideCreate,
     db: Session = Depends(get_db),
+    current_user: str = Depends(get_current_user_name),
 ) -> CourseRunRuleOverrideResponse:
     """Record a rule-pack override applied to a course run."""
     try:
         service = CourseRunRuleOverrideService(db)
-        override = service.create_override(payload)
+        override = service.create_override(payload, created_by=current_user)
     except CourseRunNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
     except Exception:

@@ -40,8 +40,12 @@ class CourseRunService:
         self.repository = CourseRunRepository(db)
         self.course_repository = CourseRepository(db)
 
-    def create_course_run(self, payload: CourseRunCreate) -> CourseRun:
-        """Persist a new course-run record, assigning the next version number."""
+    def create_course_run(self, payload: CourseRunCreate, created_by: str) -> CourseRun:
+        """Persist a new course-run record, assigning the next version number.
+
+        `created_by` is the authenticated user's name, used when the payload
+        does not carry an explicit creator.
+        """
         course = self.course_repository.get_by(id=payload.course_id)
         if course is None:
             raise CourseNotFoundError(f"Course '{payload.course_id}' not found.")
@@ -60,7 +64,7 @@ class CourseRunService:
                 course_id=payload.course_id,
                 version_number=next_version,
                 created_from_run_id=payload.created_from_run_id,
-                created_by=payload.created_by,
+                created_by=payload.created_by or created_by,
             )
 
             course_run = CourseRun(

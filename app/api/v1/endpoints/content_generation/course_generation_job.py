@@ -15,7 +15,7 @@ from semantic_kernel import Kernel
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db, get_kernel
-from app.core.auth.dependencies import require_valid_token
+from app.core.auth.dependencies import get_current_user_name, require_valid_token
 from app.db.session import azure_db_client
 from app.models.course_generation.course_generation_job.constants import (
     JOB_STATUS_CANCELLED,
@@ -69,6 +69,7 @@ def create_job(
     payload: GenerateCourseRequest,
     db: Session = Depends(get_db),
     kernel: Kernel = Depends(get_kernel),
+    current_user: str = Depends(get_current_user_name),
 ) -> CourseGenerationJobResponse:
     """Queue a content-generation job for an already-persisted course run.
 
@@ -81,7 +82,7 @@ def create_job(
     try:
         job = CourseGenerationJobService(db, kernel=kernel).create_and_queue(
             course_run_id=course_run_id,
-            requested_by=payload.requested_by,
+            requested_by=payload.requested_by or current_user,
             training_outline=payload.training_outline,
         )
     except CourseRunNotFoundError as exc:

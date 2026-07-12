@@ -23,13 +23,19 @@ class CourseRunInputService:
         self.repository = CourseRunInputRepository(db)
         self.course_run_repository = CourseRunRepository(db)
 
-    def create_input(self, payload: CourseRunInputCreate) -> CourseRunInput:
-        """Persist a new course-run-input record."""
+    def create_input(self, payload: CourseRunInputCreate, uploaded_by: str) -> CourseRunInput:
+        """Persist a new course-run-input record.
+
+        `uploaded_by` is the authenticated user's name, used when the payload
+        does not carry an explicit uploader.
+        """
         course_run = self.course_run_repository.get_by_id(payload.course_run_id)
         if course_run is None:
             raise CourseRunNotFoundError(f"Course run '{payload.course_run_id}' not found.")
 
-        course_run_input = CourseRunInput(**payload.model_dump())
+        data = payload.model_dump()
+        data["uploaded_by"] = data.get("uploaded_by") or uploaded_by
+        course_run_input = CourseRunInput(**data)
         created = self.repository.create(course_run_input)
         logger.info("Created course run input %s (run %s)", created.id, created.course_run_id)
         return created

@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.schemas.onboarding.course_run.course_run_input import (
     CourseRunInputData,
@@ -19,8 +19,6 @@ from app.schemas.onboarding.course_run.course_run_spec import (
     CourseRunSpecData,
     CourseRunSpecNestedCreate,
 )
-
-DEFAULT_CREATED_BY = "system"
 
 CourseRunStatus = Literal["DRAFT", "GENERATING", "GENERATED", "FAILED", "CANCELLED"]
 
@@ -42,7 +40,7 @@ class CourseRunCreate(BaseModel):
     created_by: str | None = Field(
         default=None,
         max_length=255,
-        description="Who created this run; defaults to 'system' if omitted",
+        description="Who created this run; defaults to the authenticated user if omitted",
     )
     spec: CourseRunSpecNestedCreate | None = Field(
         default=None,
@@ -65,12 +63,7 @@ class CourseRunInternal(BaseModel):
     version_number: int
     created_from_run_id: int | None = None
     status_code: CourseRunStatus = Field(default="DRAFT")
-    created_by: str = Field(default=DEFAULT_CREATED_BY)
-
-    @field_validator("created_by", mode="before")
-    @classmethod
-    def default_created_by(cls, value: str | None) -> str:
-        return value or DEFAULT_CREATED_BY
+    created_by: str = Field(..., min_length=1, max_length=255)
 
 
 class CourseRunData(BaseModel):

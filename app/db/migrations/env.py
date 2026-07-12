@@ -7,6 +7,16 @@ from alembic import context
 
 # Import every ORM model so `Base.metadata` is fully populated for autogenerate.
 from app.models.onboarding.course_basic import course_basic as course_models  # noqa: F401
+from app.models.onboarding.course_run import course_run as course_run_models  # noqa: F401
+from app.models.course_generation.course_generation_job import (  # noqa: F401
+    course_content_version as course_content_version_models,
+    job as course_generation_job_models,
+    job_artifact as course_generation_job_artifact_models,
+    job_log as course_generation_job_log_models,
+    job_stage as course_generation_job_stage_models,
+    job_status as course_generation_job_status_models,
+    validation_run as course_generation_validation_run_models,
+)
 from app.core.config import azure_settings
 from app.db.base import Base
 

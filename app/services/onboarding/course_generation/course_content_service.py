@@ -143,30 +143,112 @@ def _map_images(images: list) -> list[dict]:
     return mapped
 
 
+def _is_lesson_parent_section(raw: dict) -> bool:
+    """True when an A2 flat section is the lesson/chapter heading (not a subtopic)."""
+    level = int(raw.get("level") or 2)
+    outline_lesson = str(raw.get("outline_lesson") or "").strip()
+    heading = str(raw.get("heading") or "").strip()
+    return bool(
+        level == 1
+        or raw.get("is_parent_overview")
+        or (outline_lesson and heading == outline_lesson)
+    )
+
+
+def _group_a2_sections_by_lesson(raw_sections: list) -> list[tuple[str, list[dict]]]:
+    """Group flat A2 sections into ordered ``(lesson_title, sections)`` chapters.
+
+    A2 writers tag every generated block with ``outline_lesson`` (the TO lesson
+    title). Level-1 / ``is_parent_overview`` rows are the chapter heads; level-2
+    rows are subtopics. When a lesson has only level-2 rows (no parent overview
+    was generated), they still form their own chapter keyed by ``outline_lesson``.
+
+    Falling back to a single ``level``-only walk incorrectly nests every later
+    lesson's subtopics under the first level-2 section when no level-1 parents
+    exist — which is why the editor saw 2 top-level sections instead of 9.
+    """
+    groups: list[tuple[str, list[dict]]] = []
+    current_key: str | None = None
+    current_sections: list[dict] = []
+    orphan_idx = 0
+
+    def flush() -> None:
+        nonlocal current_key, current_sections
+        if current_key is not None and current_sections:
+            groups.append((current_key, current_sections))
+        current_key = None
+        current_sections = []
+
+    for raw in raw_sections:
+        if not isinstance(raw, dict):
+            continue
+        outline_lesson = str(raw.get("outline_lesson") or "").strip()
+        heading = str(raw.get("heading") or "").strip()
+        key = outline_lesson or heading or f"Section {orphan_idx + 1}"
+        if not outline_lesson:
+            orphan_idx += 1
+
+        if current_key is None:
+            current_key = key
+            current_sections = [raw]
+            continue
+
+        if key != current_key:
+            flush()
+            current_key = key
+            current_sections = [raw]
+        else:
+            current_sections.append(raw)
+
+    flush()
+    return groups
+
+
 def _map_a2_output(job_id: str, payload: dict, *, course_type: str) -> dict:
     """Map persisted `A2Output` into the editor `CourseContent` payload.
 
-    A2 `sections` is a flat list with `level` (1 = parent overview, 2 = subtopic)
-    and `outline_lesson` grouping subtopics under their lesson. We rebuild the
-    two-level tree the editor expects: level-1 sections carrying level-2 children.
+    A2 ``sections`` is a flat list tagged with ``outline_lesson`` (lesson/chapter)
+    plus ``level`` / ``is_parent_overview`` (1 = chapter head, 2 = subtopic).
+    Rebuild one top-level chapter per lesson, with subtopics as children.
     """
     raw_sections = payload.get("sections") or []
 
     top_level: list[dict] = []
-    current_parent: dict | None = None
     order = 0
     total_words = 0
+    used_ids: set[str] = set()
 
-    def build_section(raw: dict, level: int, index: int, parent_id: str | None) -> dict:
+    def unique_id(preferred: str, fallback: str) -> str:
+        candidate = (preferred or "").strip() or fallback
+        if candidate not in used_ids:
+            used_ids.add(candidate)
+            return candidate
+        suffix = 2
+        while f"{candidate}-{suffix}" in used_ids:
+            suffix += 1
+        resolved = f"{candidate}-{suffix}"
+        used_ids.add(resolved)
+        return resolved
+
+    def build_section(
+        raw: dict,
+        *,
+        level: int,
+        index: int,
+        parent_id: str | None,
+        id_fallback: str,
+        title_override: str | None = None,
+    ) -> dict:
         nonlocal total_words
-        paragraphs = raw.get("body_paragraphs") or []
+        paragraphs = list(raw.get("body_paragraphs") or [])
         word_count = int(raw.get("word_count") or 0)
         total_words += word_count
-        is_overview = bool(raw.get("is_parent_overview")) or level == 1
-        section_id = str(raw.get("section_id") or "").strip() or f"{job_id}-sec-{index}"
+        is_overview = level == 1
+        section_id = unique_id(str(raw.get("section_id") or ""), id_fallback)
+        title = title_override or raw.get("heading") or f"Section {index + 1}"
         return {
             "id": section_id,
-            "title": raw.get("heading") or f"Section {index + 1}",
+            "title": title,
             "level": level,
             "sectionType": "overview" if is_overview else "content",
             "content": _paragraphs_to_text(paragraphs),
@@ -185,9 +267,10 @@ def _map_a2_output(job_id: str, payload: dict, *, course_type: str) -> dict:
     # Optional course intro from A2 course_description.
     description = (payload.get("course_description") or "").strip()
     if description:
+        intro_id = unique_id(f"{job_id}-introduction", f"{job_id}-introduction")
         top_level.append(
             {
-                "id": f"{job_id}-introduction",
+                "id": intro_id,
                 "title": "Introduction",
                 "level": 1,
                 "sectionType": "overview",
@@ -204,25 +287,75 @@ def _map_a2_output(job_id: str, payload: dict, *, course_type: str) -> dict:
         )
         order += 1
 
-    for idx, raw in enumerate(raw_sections):
-        if not isinstance(raw, dict):
-            continue
-        level = int(raw.get("level") or 1)
-        if level <= 1 or current_parent is None:
-            section = build_section(raw, 1, order, None)
-            top_level.append(section)
-            current_parent = section
-            order += 1
+    for chapter_idx, (lesson_title, lesson_sections) in enumerate(
+        _group_a2_sections_by_lesson(raw_sections)
+    ):
+        parent_raw = next(
+            (sec for sec in lesson_sections if _is_lesson_parent_section(sec)),
+            None,
+        )
+        child_raws = [
+            sec for sec in lesson_sections if not _is_lesson_parent_section(sec)
+        ]
+
+        if parent_raw is not None:
+            parent = build_section(
+                parent_raw,
+                level=1,
+                index=order,
+                parent_id=None,
+                id_fallback=f"{job_id}-ch-{chapter_idx}",
+            )
         else:
-            child = build_section(raw, 2, len(current_parent["children"]), current_parent["id"])
-            current_parent["children"].append(child)
+            # No generated parent overview — synthesize a chapter head so each
+            # TO lesson still appears as its own top-level section in the editor.
+            subtopic_titles = [
+                str(sec.get("heading") or "").strip()
+                for sec in child_raws
+                if str(sec.get("heading") or "").strip()
+            ]
+            synthetic = {
+                "heading": lesson_title,
+                "body_paragraphs": (
+                    [{"type": "bullet_list", "items": subtopic_titles}]
+                    if subtopic_titles
+                    else []
+                ),
+                "word_count": 0,
+                "section_id": "",
+                "images": [],
+                "is_parent_overview": True,
+                "level": 1,
+            }
+            parent = build_section(
+                synthetic,
+                level=1,
+                index=order,
+                parent_id=None,
+                id_fallback=f"{job_id}-ch-{chapter_idx}",
+                title_override=lesson_title,
+            )
+
+        for child_idx, child_raw in enumerate(child_raws):
+            child = build_section(
+                child_raw,
+                level=2,
+                index=child_idx,
+                parent_id=parent["id"],
+                id_fallback=f"{job_id}-ch-{chapter_idx}-sec-{child_idx}",
+            )
+            parent["children"].append(child)
+
+        top_level.append(parent)
+        order += 1
 
     # Optional course conclusion from A2 course_conclusion.
     conclusion = (payload.get("course_conclusion") or "").strip()
     if conclusion:
+        conclusion_id = unique_id(f"{job_id}-conclusion", f"{job_id}-conclusion")
         top_level.append(
             {
-                "id": f"{job_id}-conclusion",
+                "id": conclusion_id,
                 "title": "Conclusion",
                 "level": 1,
                 "sectionType": "conclusion",

@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.concurrency import run_in_threadpool
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response, StreamingResponse
 from semantic_kernel import Kernel
 from sqlalchemy.orm import Session
 
@@ -25,6 +25,9 @@ from app.models.course_generation.course_generation_job.constants import (
 from app.repositories.course_generation.course_generation_job_repository import (
     CourseGenerationJobRepository,
 )
+from app.schemas.onboarding.course_generation_job.course_content_snapshot import (
+    RenderDocxRequest,
+)
 from app.schemas.onboarding.course_generation_job.job import (
     CancelJobResponse,
     CourseGenerationJobData,
@@ -35,6 +38,10 @@ from app.schemas.onboarding.course_generation_job.job_detail import JobDetailRes
 from app.services.onboarding.course_generation.course_content_service import (
     CourseContentNotFoundError,
     CourseContentService,
+)
+from app.services.onboarding.course_generation.docx_render_service import (
+    DocxRenderService,
+    EmptyCourseContentError,
 )
 from app.services.onboarding.course_generation.job_progress_service import JobProgressService
 from app.services.onboarding.course_generation.job_service import (
@@ -145,6 +152,43 @@ def get_job_course(job_id: str, db: Session = Depends(get_db)) -> dict:
         raise HTTPException(
             status_code=500, detail="Could not load the generated course. Please try again."
         )
+
+
+@router.post("/jobs/{job_id}/artifacts/render-docx")
+def render_job_docx(
+    job_id: str,
+    payload: RenderDocxRequest,
+    db: Session = Depends(get_db),
+) -> Response:
+    """Render a study-guide DOCX from the submitted editor snapshot (no persistence).
+
+    The request body is the sole source of truth for document content. This route
+    performs a read-only job existence check for route consistency, then maps the
+    snapshot and returns DOCX bytes. It does not sync course content, write
+    artifacts, update the job, create versions, or upload to Azure.
+    """
+    job = CourseGenerationJobRepository(db).get_by_id(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail=f"Job '{job_id}' not found.")
+
+    try:
+        rendered = DocxRenderService().render(payload)
+    except EmptyCourseContentError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception:
+        logger.exception("Failed to render DOCX for job %s", job_id)
+        raise HTTPException(
+            status_code=500,
+            detail="Could not render the course document. Please try again.",
+        )
+
+    return Response(
+        content=rendered.content,
+        media_type=rendered.media_type,
+        headers={
+            "Content-Disposition": f'attachment; filename="{rendered.filename}"',
+        },
+    )
 
 
 # Headers that keep the event stream flowing unbuffered end-to-end: disable

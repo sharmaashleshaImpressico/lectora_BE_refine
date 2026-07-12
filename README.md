@@ -164,8 +164,8 @@ Key properties this diagram highlights:
    ```bash
    uvicorn app.main:app --reload
    ```
-   The app initializes the DB schema on startup, seeds lookup tables (job
-   status codes), starts the Service Bus worker if configured, and exposes
+   The app seeds lookup tables (job status codes) on startup, starts the
+   Service Bus worker if configured, and exposes
    routes under `/health`, `/course-basic`, `/course-runs` (+ specs/inputs/rule
    overrides), `/generate-learning-objectives` + `/regenerate-learning-objectives`,
    `/generate-recommended-topics`, `/generate-to` + `/regenerate-timed-outline`

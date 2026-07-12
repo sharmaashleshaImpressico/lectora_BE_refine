@@ -22,6 +22,7 @@ DEFAULTS: dict[str, str] = {
     "A0_TO": "gpt-5.4-mini",
     "A1": "gpt-5.4-mini",
     "A2": "gpt-5.4-mini",
+    "CONTENT_TRANSFORM": "gpt-5.4-mini",
 }
 
 AVAILABLE_MODELS: list[dict] = [
@@ -52,6 +53,12 @@ AGENT_META: dict[str, dict] = {
         "name": "Content Generator",
         "role": "Generates course content per lesson, descriptions, and conclusions",
         "pipeline_step": 3,
+        "supports_temperature": True,
+    },
+    "CONTENT_TRANSFORM": {
+        "name": "Course Editor Content Transform",
+        "role": "Transforms a single editor section (summarize, expand, simplify, rewrite, improve tone)",
+        "pipeline_step": 0,
         "supports_temperature": True,
     },
 }

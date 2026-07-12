@@ -8,6 +8,20 @@ The pipeline persists two relevant artifacts per job (see `pipeline_runner`):
   subtopics, no paragraph blocks). Used as a fallback for jobs generated before
   ``course_content.json`` was persisted, so they still render structure.
 
+Resolution order for GET /jobs/{job_id}/course:
+
+1. Latest ``AVAILABLE`` ``CourseContentVersion.canonical_json_blob_path``
+2. Flat pipeline ``course_content.json`` artifact
+3. ``enriched_sections.json`` fallback
+
+``CREATING`` / ``FAILED`` versions are ignored. A missing or corrupt blob for the
+latest AVAILABLE version raises a consistency error (no silent fall-back to an
+older version or flat artifact).
+
+Lazy Version 1 backfill is intentionally **not** performed on GET — that write
+belongs to Save-to-Azure (and pipeline completion). GET remains read-only aside
+from the DB session used for lookups.
+
 Both are read back from blob (or the local upload store when Azure is not
 configured) and mapped into the camelCase ``CourseContent`` payload the frontend
 binds to (``types/editor.ts``).
@@ -17,6 +31,8 @@ from __future__ import annotations
 
 import json
 import logging
+from dataclasses import dataclass
+from typing import Any
 
 from sqlalchemy.orm import Session
 
@@ -25,12 +41,17 @@ from app.core.storage.azure_blob_client import LocalUploadStore
 from app.models.course_generation.course_generation_job.constants import (
     ARTIFACT_TYPE_COURSE_CONTENT,
     ARTIFACT_TYPE_ENRICHED_SECTIONS,
+    ARTIFACT_TYPE_SHARED_STATE,
 )
 from app.models.onboarding.course_basic.course_basic import CourseBasic
 from app.models.onboarding.course_run.course_run import CourseRun
+from app.repositories.course_generation.course_content_version_repository import (
+    CourseContentVersionRepository,
+)
 from app.repositories.course_generation.course_generation_job_artifact_repository import (
     CourseGenerationJobArtifactRepository,
 )
+from app.repositories.course_run.course_run_spec_repository import CourseRunSpecRepository
 from app.services.onboarding.course_generation.artifact_service import ArtifactsBlobClient
 
 logger = logging.getLogger(__name__)
@@ -40,12 +61,28 @@ class CourseContentNotFoundError(Exception):
     """Raised when a job has no readable generated-course artifact."""
 
 
+class CourseContentConsistencyError(Exception):
+    """Raised when the latest AVAILABLE version metadata points to bad storage."""
+
+
+@dataclass(frozen=True)
+class CanonicalCourseState:
+    """Raw canonical A2 (+ learning objectives) for editor-save transforms."""
+
+    canonical_a2: dict[str, Any]
+    learning_objectives: list[str]
+    course_title: str
+    source: str  # "version" | "course_content_artifact" | "pipeline_input"
+
+
 class CourseContentService:
     """Reads a job's generated-course artifact and maps it for the editor."""
 
     def __init__(self, db: Session) -> None:
         self.db = db
         self.artifacts = CourseGenerationJobArtifactRepository(db)
+        self.versions = CourseContentVersionRepository(db)
+        self.course_run_specs = CourseRunSpecRepository(db)
         self._blob_client = ArtifactsBlobClient(azure_storage_settings)
         self._local_store = LocalUploadStore(azure_storage_settings)
 
@@ -54,11 +91,27 @@ class CourseContentService:
 
         Raises `CourseContentNotFoundError` when no generated-course artifact
         exists yet (e.g. the job hasn't finished, or failed before writing one).
+        Raises `CourseContentConsistencyError` when the latest AVAILABLE version
+        blob is missing or corrupt.
         """
         artifacts = self.artifacts.list_by_job(job_id)
         by_type = {a.artifact_type: a for a in artifacts}
-
         course_type = self._resolve_course_type(job_id, artifacts)
+
+        latest = self.versions.get_latest_available(job_id)
+        if latest is not None and (latest.canonical_json_blob_path or "").strip():
+            logger.info(
+                "[course_content] load | job_id=%s source=version version_number=%s path=%s",
+                job_id,
+                latest.version_number,
+                latest.canonical_json_blob_path,
+            )
+            payload = self._read_version_json(
+                latest.canonical_json_blob_path,
+                job_id=job_id,
+                version_number=latest.version_number,
+            )
+            return _map_a2_output(job_id, payload, course_type=course_type)
 
         content_artifact = by_type.get(ARTIFACT_TYPE_COURSE_CONTENT)
         if content_artifact is not None:
@@ -73,6 +126,158 @@ class CourseContentService:
         raise CourseContentNotFoundError(
             f"No generated course content found for job '{job_id}'."
         )
+
+    def load_canonical_state(self, job_id: int | str) -> CanonicalCourseState:
+        """Load raw A2 canonical state for editor-save (never from DOCX).
+
+        Preference order:
+        1. Latest AVAILABLE ``CourseContentVersion`` JSON
+        2. Flat pipeline ``course_content.json`` artifact
+        3. ``pipeline_input.json`` / course-run-spec learning objectives as LO fallback
+           only — enriched_sections alone is not sufficient for save transforms
+        """
+        latest = self.versions.get_latest_available(job_id)
+        if latest is not None and (latest.canonical_json_blob_path or "").strip():
+            payload = self._read_version_json(
+                latest.canonical_json_blob_path,
+                job_id=job_id,
+                version_number=latest.version_number,
+            )
+            return self._canonical_from_payload(payload, source="version", job_id=job_id)
+
+        artifacts = self.artifacts.list_by_job(job_id)
+        by_type = {a.artifact_type: a for a in artifacts}
+
+        content_artifact = by_type.get(ARTIFACT_TYPE_COURSE_CONTENT)
+        if content_artifact is not None:
+            payload = self._read_json(content_artifact.blob_path)
+            return self._canonical_from_payload(
+                payload, source="course_content_artifact", job_id=job_id, artifacts=by_type
+            )
+
+        raise CourseContentNotFoundError(
+            f"No canonical course_content.json found for job '{job_id}'. "
+            "Editor save requires rich A2 course content (not DOCX, not enriched_sections alone)."
+        )
+
+    def _read_version_json(
+        self,
+        blob_path: str,
+        *,
+        job_id: int | str,
+        version_number: int,
+    ) -> dict:
+        """Load version JSON; surface storage/corruption errors without silent fallback."""
+        try:
+            return self._read_json(blob_path)
+        except CourseContentNotFoundError as exc:
+            logger.error(
+                "[course_content] consistency | job_id=%s version_number=%s "
+                "path=%s status=missing_blob",
+                job_id,
+                version_number,
+                blob_path,
+            )
+            raise CourseContentConsistencyError(
+                f"Latest AVAILABLE version {version_number} for job '{job_id}' "
+                f"points to missing blob '{blob_path}'."
+            ) from exc
+        except json.JSONDecodeError as exc:
+            logger.error(
+                "[course_content] consistency | job_id=%s version_number=%s "
+                "path=%s status=invalid_json",
+                job_id,
+                version_number,
+                blob_path,
+            )
+            raise CourseContentConsistencyError(
+                f"Latest AVAILABLE version {version_number} for job '{job_id}' "
+                f"has invalid JSON at '{blob_path}'."
+            ) from exc
+        except CourseContentConsistencyError:
+            raise
+        except Exception as exc:
+            raise CourseContentConsistencyError(
+                f"Failed to load latest AVAILABLE version {version_number} for "
+                f"job '{job_id}' from '{blob_path}': {exc}"
+            ) from exc
+
+    def _canonical_from_payload(
+        self,
+        payload: dict[str, Any],
+        *,
+        source: str,
+        job_id: int | str,
+        artifacts: dict | None = None,
+    ) -> CanonicalCourseState:
+        if not isinstance(payload, dict) or not (payload.get("sections") or []):
+            raise CourseContentNotFoundError(
+                f"Canonical payload for job '{job_id}' is missing A2 sections."
+            )
+
+        learning_objectives = self._extract_learning_objectives(payload)
+        if not learning_objectives:
+            learning_objectives = self._load_learning_objectives_fallback(
+                job_id, artifacts=artifacts
+            )
+
+        course_title = str(payload.get("course_title") or "").strip() or "Untitled Course"
+        return CanonicalCourseState(
+            canonical_a2=dict(payload),
+            learning_objectives=learning_objectives,
+            course_title=course_title,
+            source=source,
+        )
+
+    @staticmethod
+    def _extract_learning_objectives(payload: dict[str, Any]) -> list[str]:
+        raw = payload.get("learning_objectives")
+        if isinstance(raw, list):
+            return [str(item).strip() for item in raw if str(item).strip()]
+        return []
+
+    def _load_learning_objectives_fallback(
+        self,
+        job_id: int | str,
+        *,
+        artifacts: dict | None = None,
+    ) -> list[str]:
+        by_type = artifacts
+        if by_type is None:
+            by_type = {a.artifact_type: a for a in self.artifacts.list_by_job(job_id)}
+
+        shared = by_type.get(ARTIFACT_TYPE_SHARED_STATE)
+        if shared is not None:
+            try:
+                payload = self._read_json(shared.blob_path)
+                raw = payload.get("learning_objectives")
+                if isinstance(raw, list):
+                    return [str(item).strip() for item in raw if str(item).strip()]
+            except Exception:
+                logger.exception(
+                    "Failed reading learning objectives from pipeline_input for job %s",
+                    job_id,
+                )
+
+        # Course-run spec JSON list (onboarding).
+        if by_type:
+            sample = next(iter(by_type.values()), None)
+            course_run_id = getattr(sample, "course_run_id", None)
+            if course_run_id is not None:
+                spec = self.course_run_specs.get_by(course_run_id=course_run_id)
+                if spec and spec.learning_objectives_json:
+                    try:
+                        parsed = json.loads(spec.learning_objectives_json)
+                        if isinstance(parsed, list):
+                            return [
+                                str(item).strip() for item in parsed if str(item).strip()
+                            ]
+                    except json.JSONDecodeError:
+                        logger.warning(
+                            "Invalid learning_objectives_json on course_run %s",
+                            course_run_id,
+                        )
+        return []
 
     def _resolve_course_type(self, job_id: str, artifacts: list) -> str:
         """Best-effort lookup of the course type for display (never fatal)."""
@@ -89,7 +294,12 @@ class CourseContentService:
 
     def _read_json(self, blob_path: str) -> dict:
         if self._blob_client.is_ready():
-            raw = self._blob_client.download_bytes(blob_path)
+            try:
+                raw = self._blob_client.download_bytes(blob_path)
+            except Exception as exc:
+                raise CourseContentNotFoundError(
+                    f"Artifact '{blob_path}' could not be downloaded: {exc}"
+                ) from exc
         else:
             local_path = self._local_store.resolve(blob_path)
             if not local_path.is_file():
@@ -97,7 +307,18 @@ class CourseContentService:
                     f"Artifact '{blob_path}' not found on local store."
                 )
             raw = local_path.read_bytes()
-        return json.loads(raw.decode("utf-8"))
+        try:
+            payload = json.loads(raw.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            # Re-raise JSONDecodeError so version loaders can map to consistency errors.
+            if isinstance(exc, json.JSONDecodeError):
+                raise
+            raise json.JSONDecodeError(str(exc), "", 0) from exc
+        if not isinstance(payload, dict) and not isinstance(payload, list):
+            raise CourseContentNotFoundError(
+                f"Artifact '{blob_path}' did not contain a JSON object or array."
+            )
+        return payload  # type: ignore[return-value]
 
 
 # ─── Mapping helpers ──────────────────────────────────────────────────────────
@@ -210,6 +431,10 @@ def _map_a2_output(job_id: str, payload: dict, *, course_type: str) -> dict:
     A2 ``sections`` is a flat list tagged with ``outline_lesson`` (lesson/chapter)
     plus ``level`` / ``is_parent_overview`` (1 = chapter head, 2 = subtopic).
     Rebuild one top-level chapter per lesson, with subtopics as children.
+
+    Extra storage keys (``learning_objectives``, wrappers) are tolerated: older
+    flat pipeline JSON without them continues to work; when present, learning
+    objectives are surfaced as a ``learning-objectives`` section for the editor.
     """
     raw_sections = payload.get("sections") or []
 
@@ -278,6 +503,38 @@ def _map_a2_output(job_id: str, payload: dict, *, course_type: str) -> dict:
                 "paragraphs": [{"type": "text", "content": description}],
                 "learningObjectives": [],
                 "wordCount": len(description.split()),
+                "hasKnowledgeCheck": False,
+                "order": order,
+                "parentId": None,
+                "children": [],
+                "images": [],
+            }
+        )
+        order += 1
+
+    # Versioned / editor-saved JSON may embed learning_objectives at the root.
+    raw_los = payload.get("learning_objectives")
+    learning_objectives: list[str] = []
+    if isinstance(raw_los, list):
+        learning_objectives = [
+            str(item).strip() for item in raw_los if str(item).strip()
+        ]
+    if learning_objectives:
+        lo_id = unique_id(
+            f"{job_id}-learning-objectives", f"{job_id}-learning-objectives"
+        )
+        top_level.append(
+            {
+                "id": lo_id,
+                "title": "Learning Objectives",
+                "level": 1,
+                "sectionType": "learning-objectives",
+                "content": "\n".join(f"- {lo}" for lo in learning_objectives),
+                "paragraphs": [
+                    {"type": "bullet_list", "items": list(learning_objectives)}
+                ],
+                "learningObjectives": list(learning_objectives),
+                "wordCount": sum(len(lo.split()) for lo in learning_objectives),
                 "hasKnowledgeCheck": False,
                 "order": order,
                 "parentId": None,

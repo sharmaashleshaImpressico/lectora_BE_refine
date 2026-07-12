@@ -28,7 +28,14 @@ from app.ai.agents.content_generation_agent.models import (
 from app.ai.agents.content_generation_agent.section_mapper.runner import (
     map_sections,
 )
-from app.ai.rule_pack_config import resolve_content_rule_pack_from_shared_state
+from app.ai.agents.content_generation_agent.shared.s2_refine_routing import (
+    s2_content_refine_routing_reason,
+    s2_requires_content_refine,
+)
+from app.ai.rule_pack_config import (
+    filter_rule_pack_for_validation,
+    resolve_content_rule_pack_from_shared_state,
+)
 from app.tracing import traced_workflow
 
 logger = logging.getLogger(__name__)
@@ -174,6 +181,10 @@ class ContentGenerationInput:
     course_config: dict[str, Any] = field(default_factory=dict)
     source_file_specs: list[dict[str, Any]] | None = None
     rule_family: str | None = None
+    # User rule-pack edits ({dot.path: value}) persisted from the frontend
+    # rules editor — applied over the resolved pack's defaults (user values
+    # are the source of truth).
+    rule_overrides: dict[str, Any] | None = None
     output_path: str | None = None
     course_id: str | None = None
     # Ingestion-time document identifiers for this course's uploaded source
@@ -274,9 +285,21 @@ class ContentGenerationOrchestrator:
             {"course_difficulty": spec.course_difficulty, "rule_family": spec.rule_family},
             purpose="validate",
             difficulty_override=spec.course_difficulty,
+            overrides=spec.rule_overrides,
         )
+        if spec.rule_overrides:
+            logger.info(
+                "[content_generation] Applied %s user rule override(s) over pack defaults: %s",
+                len(spec.rule_overrides),
+                sorted(spec.rule_overrides),
+            )
         if not rule_pack:
             raise RuntimeError(f"Could not resolve rule pack for difficulty {spec.course_difficulty!r}")
+
+        # The validator only consumes a subset of the pack (deterministic
+        # checks + AI-validation prompt) — pass it the filtered view. The
+        # writer and refiner keep the full pack.
+        validation_rule_pack = filter_rule_pack_for_validation(rule_pack)
 
         validation_context = {
             "course_title": spec.course_title,
@@ -302,7 +325,7 @@ class ContentGenerationOrchestrator:
                         course_title=spec.course_title,
                         sections=sections,
                     ),
-                    rule_pack=rule_pack,
+                    rule_pack=validation_rule_pack,
                     context=validation_context,
                     run_id=spec.run_id,
                     phase="lesson",
@@ -329,22 +352,27 @@ class ContentGenerationOrchestrator:
 
             validation = _validate_lesson(prev_sections + current, lesson_title)
 
+            # Refine on the S2 module's own routing contract (blockers OR
+            # criticals — see s2_refine_routing), not just blockers: the AI
+            # validator reports most lesson failures as criticals, which
+            # previously never triggered CONTENT_REFINE.
             attempt = 0
-            while _is_blocked(validation) and attempt < _MAX_REPAIR_ATTEMPTS:
+            while s2_requires_content_refine(validation) and attempt < _MAX_REPAIR_ATTEMPTS:
                 attempt += 1
                 repair_attempts_total += 1
+                routing_reason = s2_content_refine_routing_reason(validation)
                 logger.info(
-                    "[content_generation] Lesson %s/%s refinement attempt %s/%s | blockers=%s",
+                    "[content_generation] Lesson %s/%s refinement attempt %s/%s | %s",
                     lesson_idx,
                     total_lessons,
                     attempt,
                     _MAX_REPAIR_ATTEMPTS,
-                    validation.blockers,
+                    routing_reason,
                 )
                 reporter.retry(
                     "A2",
-                    f"Lesson {lesson_idx}/{total_lessons} has {validation.blockers} "
-                    f"blocker(s) — refining (attempt {attempt}/{_MAX_REPAIR_ATTEMPTS})…",
+                    f"Lesson {lesson_idx}/{total_lessons}: {routing_reason} "
+                    f"Refining (attempt {attempt}/{_MAX_REPAIR_ATTEMPTS})…",
                 )
                 with traced_workflow("CONTENT_REFINE"):
                     refined = refine_sections(
@@ -364,31 +392,33 @@ class ContentGenerationOrchestrator:
                 current = refined.sections[len(prev_sections):]
                 validation = _validate_lesson(prev_sections + current, lesson_title)
 
-            if _is_blocked(validation):
+            if s2_requires_content_refine(validation):
                 # Retry limit exhausted — accept the latest refined version so
-                # the remaining lessons still generate. The lesson's blocker
-                # issues stay in its report (merged into the course report),
-                # and its sections are stamped for downstream visibility.
+                # the remaining lessons still generate. The lesson's blocker/
+                # critical issues stay in its report (merged into the course
+                # report), and its sections are stamped for downstream visibility.
                 lessons_accepted_after_max_retries.append(lesson_title)
                 current = [
                     {**section, "validation_status": VALIDATION_ACCEPTED_AFTER_MAX_RETRIES}
                     for section in current
                 ]
                 logger.warning(
-                    "[content_generation] Lesson %s/%s (%r) still has %s blocker(s) "
-                    "after %s repair attempt(s) — accepting latest version and "
-                    "continuing with the next lesson.",
+                    "[content_generation] Lesson %s/%s (%r) still requires refine "
+                    "(%s blocker(s), %s critical(s)) after %s repair attempt(s) — "
+                    "accepting latest version and continuing with the next lesson.",
                     lesson_idx,
                     total_lessons,
                     lesson_title,
                     validation.blockers,
+                    validation.criticals,
                     _MAX_REPAIR_ATTEMPTS,
                 )
                 reporter.retry(
                     "A2",
                     f"Lesson {lesson_idx}/{total_lessons} still has "
-                    f"{validation.blockers} blocker(s) after {_MAX_REPAIR_ATTEMPTS} "
-                    "repair attempt(s) — accepted as-is; continuing with the next lesson.",
+                    f"{validation.blockers} blocker(s) / {validation.criticals} critical(s) "
+                    f"after {_MAX_REPAIR_ATTEMPTS} repair attempt(s) — accepted as-is; "
+                    "continuing with the next lesson.",
                 )
             else:
                 logger.info(
@@ -454,7 +484,7 @@ class ContentGenerationOrchestrator:
                     self.kernel,
                     sections=current_a2.sections,
                     a2_output=current_a2,
-                    rule_pack=rule_pack,
+                    rule_pack=validation_rule_pack,
                     context=validation_context,
                     run_id=spec.run_id,
                     phase="full",

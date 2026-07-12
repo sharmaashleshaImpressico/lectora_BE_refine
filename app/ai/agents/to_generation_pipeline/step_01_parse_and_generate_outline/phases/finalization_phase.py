@@ -30,8 +30,12 @@ from app.ai.agents.to_generation_pipeline.models import (
     RuleClassification,
     SharedState,
 )
+from app.ai.rule_pack_config.course_packs import (
+    COURSE_RULE_PACKS,
+    DEFAULT_COURSE_RULE_FAMILY,
+    resolve_course_rule_pack,
+)
 from app.ai.rule_pack_config.prune import prune_empty_payload_values
-from app.ai.rule_pack_config.rule_packs import RULE_PACKS, resolve_rule_pack
 from app.ai.shared_utils.course_id_resolver import (
     derive_course_id_from_title,
     normalize_course_id,
@@ -162,31 +166,16 @@ class FinalizationPhase:
 
     def _resolve_rule_pack(self) -> tuple[str, dict]:
         rule_family_key = self._generation.llm_result["rule_family"]
-        if rule_family_key not in RULE_PACKS:
-            matched = next(
-                (key for key in RULE_PACKS if key in rule_family_key or rule_family_key in key),
-                None,
+        resolved = resolve_course_rule_pack(rule_family=rule_family_key)
+        if resolved is None:
+            logger.error(
+                "[A0] Unknown rule_family %r (valid: %s) — defaulting to %r",
+                rule_family_key,
+                list(COURSE_RULE_PACKS.keys()),
+                DEFAULT_COURSE_RULE_FAMILY,
             )
-            if matched:
-                logger.warning(
-                    "[A0] Unknown rule_family %r — falling back to matched key %r",
-                    rule_family_key,
-                    matched,
-                )
-                rule_family_key = matched
-            else:
-                logger.error(
-                    "[A0] Unknown rule_family %r (valid: %s) — defaulting to 'insurance_ce'",
-                    rule_family_key,
-                    list(RULE_PACKS.keys()),
-                )
-                rule_family_key = "insurance_ce"
-        difficulty = (
-            getattr(self._synth, "difficulty_level", None)
-            or getattr(self._synth, "course_difficulty", None)
-        )
-        rule_pack = resolve_rule_pack(rule_family_key, difficulty) or RULE_PACKS[rule_family_key]
-        return rule_family_key, rule_pack
+            resolved = resolve_course_rule_pack(rule_family=DEFAULT_COURSE_RULE_FAMILY)
+        return resolved
 
     def _build_request_spec(
         self, rule_pack: dict, rule_family_key: str

@@ -187,9 +187,21 @@ class CourseGenerationArtifactService:
             raise
 
         if already_exists:
-            raise ArtifactAlreadyExistsError(
-                f"Artifact already exists at '{blob_path}' — refusing to overwrite a "
-                "previous course run's artifacts."
+            # Only refuse when a DB artifact row actually references this
+            # path — that's a genuine previous run. A blob with no DB row is
+            # an orphan (e.g. the dev database was reset while blob/local
+            # storage kept old files, so job ids restarted and collided);
+            # overwriting it loses nothing the system still knows about.
+            recorded = self.repository.get_by(blob_path=blob_path)
+            if recorded is not None:
+                raise ArtifactAlreadyExistsError(
+                    f"Artifact already exists at '{blob_path}' — refusing to overwrite a "
+                    "previous course run's artifacts."
+                )
+            logger.warning(
+                "[course_generation] Blob exists at %s but no artifact row references it "
+                "— treating it as an orphan from a reset database and overwriting.",
+                blob_path,
             )
 
         content = json.dumps(payload, indent=2, default=str).encode("utf-8")

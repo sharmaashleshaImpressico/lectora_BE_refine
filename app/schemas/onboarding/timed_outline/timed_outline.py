@@ -14,7 +14,14 @@ class GenerateTimedOutlineRequest(BaseModel):
     courseTitle: str = Field(..., min_length=1)
     courseDescription: str = Field(..., min_length=1)
     durationHours: float = Field(..., gt=0)
-    calculatedWordCount: int = Field(..., gt=0)
+    calculatedWordCount: int | None = Field(
+        default=None,
+        gt=0,
+        description=(
+            "Optional target word count. Derived server-side from durationHours "
+            "+ difficulty when omitted; send only to override the calculation."
+        ),
+    )
     audience: str = Field(..., min_length=1)
     learningObjectives: list[str] = Field(..., min_length=1)
     requiredTopics: list[str] = Field(..., min_length=1)

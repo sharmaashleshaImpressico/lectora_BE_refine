@@ -6,7 +6,15 @@ import threading
 
 from semantic_kernel import Kernel
 
-from app.ai.rule_pack_config import DEFAULT_COURSE_RULE_FAMILY, resolve_course_rule_pack
+from app.ai.rule_pack_config import (
+    DEFAULT_COURSE_RULE_FAMILY,
+    normalize_rule_family_key,
+    resolve_course_rule_pack,
+)
+from app.ai.agents.to_generation_pipeline.step_01_parse_and_generate_outline.shared.constants.difficulty import (
+    WORDS_PER_CE_HOUR,
+    get_difficulty_multiplier,
+)
 from app.ai.agents.to_generation_pipeline.regenerate_outline.main import (
     TORegenerationAgent,
 )
@@ -128,7 +136,25 @@ class TimedOutlineService:
     def _to_generation_input(
         request: GenerateTimedOutlineRequest,
     ) -> TimedOutlineGenerationInput:
-        """Convert the frontend payload into orchestrator input."""
+        """Convert the frontend payload into orchestrator input.
+
+        Values the frontend used to derive itself are now filled in
+        server-side when omitted: ``calculatedWordCount`` from duration +
+        difficulty (the frontend's historical NAIC formula: duration ×
+        9,000 ÷ difficulty multiplier), and ``ruleFamily`` from the course
+        type selected on the Course Basic screen (the same alias map that
+        produced the value the frontend previously echoed back).
+        """
+        difficulty = (
+            request.difficultyLevel or request.difficulty or "intermediate"
+        ).strip().lower()
+        calculated_word_count = request.calculatedWordCount or max(
+            1,
+            round(
+                (request.durationHours * WORDS_PER_CE_HOUR)
+                / get_difficulty_multiplier(difficulty)
+            ),
+        )
         return TimedOutlineGenerationInput(
             blob_paths=request.blobPaths,
             course_title=request.courseTitle,
@@ -137,11 +163,12 @@ class TimedOutlineService:
             learning_objectives=request.learningObjectives,
             required_topics=request.requiredTopics,
             duration_hours=request.durationHours,
-            calculated_word_count=request.calculatedWordCount,
-            difficulty=(request.difficultyLevel or request.difficulty or "intermediate").strip().lower(),
+            calculated_word_count=calculated_word_count,
+            difficulty=difficulty,
             course_topic=request.courseTopic,
             course_type_hint=request.courseTypeHint,
-            rule_family=request.ruleFamily,
+            rule_family=request.ruleFamily
+            or normalize_rule_family_key(request.courseTypeHint),
             experience_level=request.experienceLevel,
             learner_outcomes=request.learnerOutcomes,
             tone=request.tone,

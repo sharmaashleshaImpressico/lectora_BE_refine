@@ -13,3 +13,11 @@ class CourseRunRuleOverrideRepository(BaseRepository[CourseRunRuleOverride]):
 
     def __init__(self, db: Session) -> None:
         super().__init__(CourseRunRuleOverride, db)
+
+    def list_by_course_run(self, course_run_id: str) -> list[CourseRunRuleOverride]:
+        return (
+            self.db.query(self.model)
+            .filter_by(course_run_id=course_run_id)
+            .order_by(self.model.id)
+            .all()
+        )

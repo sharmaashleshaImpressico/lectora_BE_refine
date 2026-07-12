@@ -50,7 +50,10 @@ from app.ai.rule_pack_config.content_generation_filter import (
 )
 
 from ..config.llm import CONCLUSION_CONFIG
-from ..step_01_generate_content.utils.content_writer import generate_all_sections
+from ..step_01_generate_content.utils.content_writer import (
+    LessonGateHook,
+    generate_all_sections,
+)
 from ..step_03_conclusion.constants.prompts import (
     CONCLUSION_SYSTEM_PROMPT,
     build_conclusion_user_message,
@@ -171,8 +174,15 @@ def generate_course_content(
     course_config: dict | None = None,
     source_file_specs: list[dict] | None = None,
     feedback: str | None = None,
+    lesson_gate_hook: LessonGateHook | None = None,
 ) -> A2Output:
-    """Generate study-guide content for every lesson in ``enriched_sections``."""
+    """Generate study-guide content for every lesson in ``enriched_sections``.
+
+    ``lesson_gate_hook`` (optional) is invoked after each lesson's sections are
+    generated and before the next lesson starts; its return value replaces that
+    lesson's sections — see ``generate_all_sections``. The content-generation
+    orchestrator uses it to validate/refine each lesson sequentially.
+    """
     if not enriched_sections:
         raise RuntimeError("Section Mapper produced no enriched_sections — nothing to generate")
 
@@ -215,6 +225,7 @@ def generate_course_content(
         audience=course_audience,
         special_instructions=effective_special_instructions,
         course_config=course_config,
+        lesson_gate_hook=lesson_gate_hook,
     )
 
     total_generated_words = sum(s.get("word_count", 0) for s in generated_sections)

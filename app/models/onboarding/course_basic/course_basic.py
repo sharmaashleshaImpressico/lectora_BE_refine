@@ -20,7 +20,7 @@ class CourseBasic(Base):
     course_code: Mapped[str] = mapped_column(String(32), nullable=False)
     course_type: Mapped[str] = mapped_column(String(100), nullable=False)
     status_code: Mapped[str] = mapped_column(String(50), nullable=False, default="DRAFT")
-    created_by: Mapped[str] = mapped_column(String(255), nullable=False, default="system")
+    created_by: Mapped[str] = mapped_column(String(255), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )

@@ -4,9 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
-
-DEFAULT_CREATED_BY = "system"
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class CourseRunRuleOverrideCreate(BaseModel):
@@ -17,11 +15,6 @@ class CourseRunRuleOverrideCreate(BaseModel):
     original_value_json: str | None = Field(default=None, description="Original rule value, serialized as JSON")
     override_value_json: str | None = Field(default=None, description="Overridden rule value, serialized as JSON")
     created_by: str | None = Field(default=None, max_length=255)
-
-    @field_validator("created_by", mode="before")
-    @classmethod
-    def default_created_by(cls, value: str | None) -> str:
-        return value or DEFAULT_CREATED_BY
 
 
 class CourseRunRuleOverrideNestedCreate(BaseModel):

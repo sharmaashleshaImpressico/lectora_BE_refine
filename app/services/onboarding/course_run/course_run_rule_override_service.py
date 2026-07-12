@@ -23,13 +23,21 @@ class CourseRunRuleOverrideService:
         self.repository = CourseRunRuleOverrideRepository(db)
         self.course_run_repository = CourseRunRepository(db)
 
-    def create_override(self, payload: CourseRunRuleOverrideCreate) -> CourseRunRuleOverride:
-        """Persist a new course-run-rule-override record."""
+    def create_override(
+        self, payload: CourseRunRuleOverrideCreate, created_by: str
+    ) -> CourseRunRuleOverride:
+        """Persist a new course-run-rule-override record.
+
+        `created_by` is the authenticated user's name, used when the payload
+        does not carry an explicit creator.
+        """
         course_run = self.course_run_repository.get_by_id(payload.course_run_id)
         if course_run is None:
             raise CourseRunNotFoundError(f"Course run '{payload.course_run_id}' not found.")
 
-        override = CourseRunRuleOverride(**payload.model_dump())
+        data = payload.model_dump()
+        data["created_by"] = data.get("created_by") or created_by
+        override = CourseRunRuleOverride(**data)
         created = self.repository.create(override)
         logger.info("Created course run rule override %s (run %s)", created.id, created.course_run_id)
         return created

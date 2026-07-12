@@ -6,10 +6,9 @@ import uuid
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field
 
 ID_PREFIX = "CRS-"
-DEFAULT_CREATED_BY = "system"
 DEFAULT_COURSE_TYPE = "General"
 
 CourseStatus = Literal["DRAFT", "PUBLISHED", "ARCHIVED"]
@@ -26,7 +25,9 @@ class CourseBasicCreate(BaseModel):
     course_title: str = Field(..., min_length=1, description="Title of the course")
     course_type: str = Field(..., min_length=1, max_length=100, description="Course type selected in the wizard")
     created_by: str | None = Field(
-        default=None, max_length=255, description="Who created this course; defaults to 'system' if omitted"
+        default=None,
+        max_length=255,
+        description="Who created this course; defaults to the authenticated user if omitted",
     )
 
 
@@ -46,12 +47,7 @@ class CourseBasicInternal(BaseModel):
     course_code: str = Field(default_factory=generate_id)
     course_type: str = Field(default=DEFAULT_COURSE_TYPE)
     status_code: CourseStatus = Field(default="DRAFT")
-    created_by: str = Field(default=DEFAULT_CREATED_BY)
-
-    @field_validator("created_by", mode="before")
-    @classmethod
-    def default_created_by(cls, value: str | None) -> str:
-        return value or DEFAULT_CREATED_BY
+    created_by: str = Field(..., min_length=1, max_length=255)
 
 
 class CourseBasicData(BaseModel):

@@ -24,9 +24,15 @@ class CourseBasicService:
         self.db = db
         self.repository = CourseRepository(db)
 
-    def create_course(self, payload: CourseBasicCreate) -> CourseBasic:
-        """Persist a new course record; the database assigns `id` on insert."""
-        record = CourseBasicInternal(**payload.model_dump())
+    def create_course(self, payload: CourseBasicCreate, created_by: str) -> CourseBasic:
+        """Persist a new course record; the database assigns `id` on insert.
+
+        `created_by` is the authenticated user's name, used when the payload
+        does not carry an explicit creator.
+        """
+        data = payload.model_dump()
+        data["created_by"] = data.get("created_by") or created_by
+        record = CourseBasicInternal(**data)
         course = CourseBasic(
             title=record.course_title,
             course_code=record.course_code,

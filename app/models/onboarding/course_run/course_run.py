@@ -25,9 +25,7 @@ class CourseRun(Base):
     status_code: Mapped[str] = mapped_column(
         String(50), nullable=False, default="DRAFT"
     )
-    created_by: Mapped[str] = mapped_column(
-        String(255), nullable=False, default="system"
-    )
+    created_by: Mapped[str] = mapped_column(String(255), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )

@@ -38,3 +38,25 @@ def require_valid_token(
             detail="Unauthorized",
             headers={"WWW-Authenticate": "Bearer"},
         ) from None
+
+
+# Claims checked in order for a human-readable identity. `name` is the Entra
+# display name; the rest are progressively weaker fallbacks that still
+# uniquely identify the signed-in account.
+_USER_NAME_CLAIMS = ("name", "preferred_username", "upn", "email")
+
+
+def get_current_user_name(
+    claims: dict[str, Any] = Depends(require_valid_token),
+) -> str:
+    """Resolve the logged-in user's name from the validated access token."""
+    for claim in _USER_NAME_CLAIMS:
+        value = claims.get(claim)
+        if value and str(value).strip():
+            return str(value).strip()
+
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Unauthorized",
+        headers={"WWW-Authenticate": "Bearer"},
+    )

@@ -4,9 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
-
-DEFAULT_UPLOADED_BY = "system"
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class CourseRunInputCreate(BaseModel):
@@ -20,11 +18,6 @@ class CourseRunInputCreate(BaseModel):
     mime_type: str | None = Field(default=None, max_length=255)
     source_intent: str | None = None
     uploaded_by: str | None = Field(default=None, max_length=255)
-
-    @field_validator("uploaded_by", mode="before")
-    @classmethod
-    def default_uploaded_by(cls, value: str | None) -> str:
-        return value or DEFAULT_UPLOADED_BY
 
 
 class CourseRunInputNestedCreate(BaseModel):

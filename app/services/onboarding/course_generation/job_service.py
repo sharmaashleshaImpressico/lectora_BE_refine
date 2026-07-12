@@ -62,7 +62,7 @@ class CourseGenerationJobService:
     def create_and_queue(
         self,
         course_run_id: str,
-        requested_by: str | None,
+        requested_by: str,
         training_outline: dict[str, Any] | None = None,
     ) -> CourseGenerationJob:
         """Persist a new QUEUED job for `course_run_id`, then publish its queue message.
@@ -84,7 +84,7 @@ class CourseGenerationJobService:
         job = CourseGenerationJob(
             course_run_id=course_run_id,
             status_code=JOB_STATUS_PENDING,
-            requested_by=requested_by or "system",
+            requested_by=requested_by,
         )
         created = self.repository.create(job)
         self.db.commit()

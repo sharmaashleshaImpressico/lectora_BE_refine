@@ -22,7 +22,7 @@ class CourseRunRuleOverride(Base):
     rule_name: Mapped[str] = mapped_column(String(255), nullable=False)
     original_value_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     override_value_json: Mapped[str | None] = mapped_column(Text, nullable=True)
-    created_by: Mapped[str] = mapped_column(String(255), nullable=False, default="system")
+    created_by: Mapped[str] = mapped_column(String(255), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )

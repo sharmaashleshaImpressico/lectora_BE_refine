@@ -25,7 +25,7 @@ class CourseRunInput(Base):
     file_size: Mapped[int | None] = mapped_column(Integer, nullable=True)
     mime_type: Mapped[str | None] = mapped_column(String(255), nullable=True)
     source_intent: Mapped[str | None] = mapped_column(Text, nullable=True)
-    uploaded_by: Mapped[str] = mapped_column(String(255), nullable=False, default="system")
+    uploaded_by: Mapped[str] = mapped_column(String(255), nullable=False)
     uploaded_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )

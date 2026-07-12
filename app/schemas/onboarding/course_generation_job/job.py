@@ -16,7 +16,7 @@ class GenerateCourseRequest(BaseModel):
     requested_by: str | None = Field(
         default=None,
         max_length=255,
-        description="Who requested generation; defaults to 'system' if omitted",
+        description="Who requested generation; defaults to the authenticated user if omitted",
     )
     training_outline: dict[str, Any] | None = Field(
         default=None,

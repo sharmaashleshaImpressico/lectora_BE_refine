@@ -1,20 +1,84 @@
-# Environment / secrets
+# ------------------------------
+# OS generated files
+# ------------------------------
+.DS_Store
+Thumbs.db
+
+# ------------------------------
+# Logs
+# ------------------------------
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# ------------------------------
+# Dependency directories
+# ------------------------------
+node_modules/
+jspm_packages/
+
+# ------------------------------
+# Build outputs
+# ------------------------------
+dist/
+build/
+out/
+coverage/
+
+# ------------------------------
+# Environment variables
+# ------------------------------
 .env
 .env.*
 !.env.example
 
-# Python
-__pycache__/
-*.py[cod]
-*$py.class
-*.egg-info/
-.eggs/
-dist/
-build/
-.venv/
-venv/
-
-# IDE / OS
-.idea/
+# ------------------------------
+# Editor directories and files
+# ------------------------------
 .vscode/
-.DS_Store
+.idea/
+*.swp
+*.swo
+
+# ------------------------------
+# Cache
+# ------------------------------
+.cache/
+.parcel-cache/
+.next/
+.nuxt/
+.svelte-kit/
+
+# ------------------------------
+# TypeScript
+# ------------------------------
+*.tsbuildinfo
+
+# ------------------------------
+# Python (if mixed project)
+# ------------------------------
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+venv/
+.venv/
+.env/
+
+# ------------------------------
+# Misc
+# ------------------------------
+*.tmp
+*.temp
+*.bak
+
+# ------------------------------
+# Local databases
+# ------------------------------
+lectora.db
+
+# Pipeline local runtime artifacts
+*.generate_to_cache/
+**/shared_state/

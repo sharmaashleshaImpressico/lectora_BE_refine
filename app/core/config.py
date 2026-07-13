@@ -57,9 +57,82 @@ class AzureSQLSettings(BaseSettings):
             f"DATABASE={self.azure_sql_database};"
             f"UID={self.azure_sql_username};"
             f"PWD={self.azure_sql_password};"
-            "Encrypt=yes;TrustServerCertificate=no;Connection Timeout=30;"
+            # Encrypt is mandatory for Azure SQL. Connection Timeout is generous
+            # because the gateway login handshake can take several seconds over a
+            # slow/remote network — a shorter value surfaces as an HYT00 "Login
+            # timeout expired" even though the credentials are valid.
+            "Encrypt=yes;TrustServerCertificate=no;Connection Timeout=60;"
         )
         return f"mssql+pyodbc:///?odbc_connect={quote_plus(odbc_params)}"
 
 
 azure_settings = AzureSQLSettings()
+
+
+class LLMPipelineSettings(BaseSettings):
+    """Azure OpenAI + tracing provider settings for the shared LLM client."""
+
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
+    azure_openai_api_key: str | None = None
+    azure_openai_endpoint: str | None = None
+    azure_openai_api_version: str = "2024-12-01-preview"
+
+    # Provider selection (source of truth for which sinks are active).
+    tracing_enabled: bool = True
+    tracing_providers: str = "jsonl,langfuse"
+
+    # Langfuse credentials (used only when ``langfuse`` is listed in TRACING_PROVIDERS).
+    langfuse_public_key: str | None = None
+    langfuse_secret_key: str | None = None
+    langfuse_host: str | None = None
+    langfuse_base_url: str | None = None
+    langfuse_project: str | None = None
+    langfuse_env: str | None = None
+    langfuse_api_key: str | None = None
+    langfuse_max_chars: int = 50_000
+    jsonl_max_chars: int | None = None
+
+
+llm_pipeline_settings = LLMPipelineSettings()
+
+
+class AzureStorageSettings(BaseSettings):
+    """Azure Blob Storage settings for document uploads and pipeline artifacts."""
+
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
+    azure_storage_connection_string: str | None = None
+    blob_container_name: str = "uploaded-documents"
+    # Dedicated container for FE-uploaded source documents (Documents library).
+    # Kept separate from `blob_container_name`, which `.env` may point at a
+    # different container used for shared-state / pipeline artifacts.
+    uploaded_documents_container_name: str = "uploaded-documents"
+    course_generation_artifacts_container_name: str = "course-generation-artifacts"
+    local_upload_root: str = "data/uploads"
+
+    @property
+    def is_configured(self) -> bool:
+        return bool(
+            self.azure_storage_connection_string
+            and self.uploaded_documents_container_name.strip()
+        )
+
+
+class IngestionSettings(BaseSettings):
+    """Azure AI Search + embeddings settings for the document ingestion pipeline."""
+
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
+    azure_search_endpoint: str | None = None
+    azure_search_api_key: str | None = None
+    azure_search_index_name: str = "course-chunks"
+    azure_openai_embeddings_resource_name: str | None = None
+    azure_openai_embeddings_key: str | None = None
+    ingestion_embedding_deployment: str = "text-embedding-3-large"
+    ingestion_max_chunk_tokens: int = 1500
+    ingestion_min_chunk_tokens: int = 80
+
+
+azure_storage_settings = AzureStorageSettings()
+ingestion_settings = IngestionSettings()

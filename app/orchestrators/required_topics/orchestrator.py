@@ -3,37 +3,54 @@
 from __future__ import annotations
 
 import logging
+import re
+import uuid
 from typing import Any
 
 from semantic_kernel import Kernel
 
-from app.pipeline.agents.required_topic.models import (
-    RTPipelineMetadata,
-    RTPipelineResult,
-)
-from app.pipeline.agents.required_topic.rt_generation.main import (
+from app.ai.agents.required_topic.models import RTPipelineMetadata
+from app.ai.agents.required_topic.rt_generation.main import (
     RTGenerationAgent,
 )
-from app.pipeline.agents.required_topic.rt_generation.models import (
+from app.ai.agents.required_topic.rt_generation.models import (
     RTGenerationInput,
 )
-from app.pipeline.agents.required_topic.rt_refine_agent.main import (
+from app.ai.agents.required_topic.rt_refine_agent.main import (
     RTRefinementAgent,
 )
-from app.pipeline.agents.required_topic.rt_refine_agent.models import (
+from app.ai.agents.required_topic.rt_refine_agent.models import (
     RTRefinementInput,
 )
-from app.pipeline.agents.required_topic.rt_validator.main import (
+from app.ai.agents.required_topic.rt_validator.main import (
     RTValidatorAgent,
 )
-from app.pipeline.agents.required_topic.rt_validator.models import (
+from app.ai.agents.required_topic.regenerate_required_topic_agent.main import (
+    RTRegenerationAgent,
+)
+from app.ai.agents.required_topic.regenerate_required_topic_agent.models import (
+    RTRegenerationInput,
+)
+from app.ai.agents.required_topic.rt_validator.models import (
     RTValidationInput,
     RTValidationIssue,
 )
+from app.orchestrators.required_topics.models import (
+    RequiredTopicsGenerationInput,
+    RequiredTopicsGenerationResult,
+    RequiredTopicsRegenerationInput,
+    RequiredTopicsRegenerationResult,
+)
+from app.tracing import atraced_workflow
 
 logger = logging.getLogger(__name__)
 
 _MAX_REPAIR_ATTEMPTS = 2
+
+
+def _doc_name_from_title(title: str | None, fallback: str) -> str:
+    s = re.sub(r"[^\w.\-]+", "_", (title or "").strip(), flags=re.UNICODE).strip("._")
+    return s or fallback
 
 
 def _issues_as_dicts(
@@ -48,6 +65,44 @@ def _issues_as_dicts(
         }
         for issue in issues
     ]
+
+
+def _format_learner_outcomes(
+    *,
+    experience_level: str,
+    outcomes: list[str],
+) -> str:
+    lines = [f"Learner experience level: {experience_level.strip()}"]
+    if outcomes:
+        lines.append("Desired outcomes:")
+        lines.extend(f"- {outcome.strip()}" for outcome in outcomes if outcome.strip())
+    return "\n".join(lines)
+
+
+def _to_regeneration_agent_input(
+    input_data: RequiredTopicsRegenerationInput,
+) -> RTRegenerationInput:
+    return RTRegenerationInput(
+        current_topics=input_data.current_topics,
+        regeneration_prompt=input_data.regeneration_prompt,
+    )
+
+
+def _to_pipeline_metadata(
+    input_data: RequiredTopicsGenerationInput,
+) -> RTPipelineMetadata:
+    return RTPipelineMetadata(
+        course_title=input_data.course_title,
+        course_description=input_data.course_scope,
+        course_type=input_data.course_type,
+        course_duration=input_data.course_duration,
+        target_audience=input_data.target_audience,
+        skill_level=input_data.difficulty_level,
+        learner_outcomes=_format_learner_outcomes(
+            experience_level=input_data.learner_experience_level,
+            outcomes=input_data.learner_outcomes,
+        ),
+    )
 
 
 class RequiredTopicsOrchestrator:
@@ -80,8 +135,24 @@ class RequiredTopicsOrchestrator:
 
     async def execute(
         self,
+        input_data: RequiredTopicsGenerationInput,
+    ) -> RequiredTopicsGenerationResult:
+        metadata = _to_pipeline_metadata(input_data)
+        run_id = f"rt-gen-{uuid.uuid4().hex[:8]}"
+        doc_name = _doc_name_from_title(metadata.course_title, "required_topics")
+        async with atraced_workflow(
+            "required_topics",
+            run_id=run_id,
+            doc_name=doc_name,
+            metadata={"course_title": metadata.course_title},
+            input_data={"course_title": metadata.course_title},
+        ):
+            return await self._execute_generate(metadata)
+
+    async def _execute_generate(
+        self,
         metadata: RTPipelineMetadata,
-    ) -> RTPipelineResult:
+    ) -> RequiredTopicsGenerationResult:
         logger.info(
             "[required_topics] Starting | title=%r",
             metadata.course_title,
@@ -97,7 +168,7 @@ class RequiredTopicsOrchestrator:
             logger.warning(
                 "[required_topics] Generation returned empty topics"
             )
-            return RTPipelineResult(
+            return RequiredTopicsGenerationResult(
                 topics=[],
                 validation_passed=False,
                 repair_attempts=0,
@@ -112,7 +183,7 @@ class RequiredTopicsOrchestrator:
         )
 
         if validation.passed:
-            return RTPipelineResult(
+            return RequiredTopicsGenerationResult(
                 topics=current_topics,
                 validation_passed=True,
                 repair_attempts=0,
@@ -159,13 +230,13 @@ class RequiredTopicsOrchestrator:
             current_issues = validation.issues
 
             if validation.passed:
-                return RTPipelineResult(
+                return RequiredTopicsGenerationResult(
                     topics=current_topics,
                     validation_passed=True,
                     repair_attempts=attempt,
                 )
 
-        return RTPipelineResult(
+        return RequiredTopicsGenerationResult(
             topics=current_topics,
             validation_passed=False,
             repair_attempts=_MAX_REPAIR_ATTEMPTS,
@@ -173,3 +244,26 @@ class RequiredTopicsOrchestrator:
                 current_issues
             ),
         )
+
+    async def regenerate_required_topics(
+        self,
+        input_data: RequiredTopicsRegenerationInput,
+    ) -> RequiredTopicsRegenerationResult:
+        """Revise existing topics from user feedback — no validation or repair."""
+        agent_input = _to_regeneration_agent_input(input_data)
+        run_id = f"rt-regen-{uuid.uuid4().hex[:8]}"
+        async with atraced_workflow(
+            "required_topics_regenerate",
+            run_id=run_id,
+            doc_name="rt-regen",
+            input_data={
+                "current_topics_count": len(agent_input.current_topics),
+            },
+        ):
+            logger.info(
+                "[required_topics] Regenerating | topics=%d | prompt_length=%d",
+                len(agent_input.current_topics),
+                len(agent_input.regeneration_prompt.strip()),
+            )
+            result = await RTRegenerationAgent(kernel=self.kernel).run(agent_input)
+            return RequiredTopicsRegenerationResult(topics=result.topics)

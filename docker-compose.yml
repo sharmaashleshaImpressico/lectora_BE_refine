@@ -1,0 +1,32 @@
+# Dev stack — single API container (Service Bus worker runs in-process,
+# started from app.main's lifespan; a no-op if SERVICE_BUS_* isn't set).
+# Usage:
+#   cp .env.example .env   # fill AZURE_OPENAI_* (and optional Azure Storage)
+#   docker compose up --build -d
+#   API: http://localhost:8000/docs
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: lectora-backend:dev
+    ports:
+      - "${API_PORT:-8000}:8000"
+    env_file:
+      - .env
+    environment:
+      RUN_MIGRATIONS: "0"
+    volumes:
+      - lectora-data:/app/data
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+volumes:
+  lectora-data:

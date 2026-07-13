@@ -15,7 +15,6 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.config import azure_settings
-from app.db.base import Base
 
 logger = logging.getLogger(__name__)
 
@@ -61,11 +60,6 @@ class AzureDatabaseClient:
     def __init__(self) -> None:
         self._engine = engine
         self._session_factory = SessionLocal
-
-    def init_db(self) -> None:
-        """Create any tables that don't exist yet. Safe to call on startup."""
-        logger.info("Initializing Azure DB schema")
-        Base.metadata.create_all(bind=self._engine)
 
     def check_connection(self) -> bool:
         """Lightweight health check used by startup/readiness probes."""

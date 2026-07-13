@@ -3,37 +3,54 @@
 from __future__ import annotations
 
 import logging
+import re
+import uuid
 from typing import Any
 
 from semantic_kernel import Kernel
 
-from app.pipeline.agents.__lo1_learning_objective.Lo_generation.main import (
+from app.ai.agents.learning_objective_agent.Lo_generation.main import (
     LOGenerationAgent,
 )
-from app.pipeline.agents.__lo1_learning_objective.Lo_generation.models import (
+from app.ai.agents.learning_objective_agent.Lo_generation.models import (
     LOGenerationInput,
 )
-from app.pipeline.agents.__lo1_learning_objective.Lo_refine_agent.main import (
+from app.ai.agents.learning_objective_agent.Lo_refine_agent.main import (
     LORefinementAgent,
 )
-from app.pipeline.agents.__lo1_learning_objective.Lo_refine_agent.models import (
+from app.ai.agents.learning_objective_agent.Lo_refine_agent.models import (
     LORefinementInput,
 )
-from app.pipeline.agents.__lo1_learning_objective.Lo_validator.main import (
+from app.ai.agents.learning_objective_agent.Lo_regenerate_agent.main import (
+    LORegenerationAgent,
+)
+from app.ai.agents.learning_objective_agent.Lo_regenerate_agent.models import (
+    LORegenerationInput,
+)
+from app.ai.agents.learning_objective_agent.Lo_validator.main import (
     LOValidatorAgent,
 )
-from app.pipeline.agents.__lo1_learning_objective.Lo_validator.models import (
+from app.ai.agents.learning_objective_agent.Lo_validator.models import (
     LOValidationInput,
     LOValidationIssue,
 )
-from app.pipeline.agents.__lo1_learning_objective.models import (
-    CourseMetadata,
-    LOPipelineResult,
+from app.ai.agents.learning_objective_agent.models import CourseMetadata
+from app.orchestrators.learning_objective.models import (
+    LearningObjectiveGenerationInput,
+    LearningObjectiveGenerationResult,
+    LearningObjectiveRegenerationInput,
+    LearningObjectiveRegenerationResult,
 )
+from app.tracing import traced_workflow
 
 logger = logging.getLogger(__name__)
 
 _MAX_REPAIR_ATTEMPTS = 2
+
+
+def _doc_name_from_title(title: str | None, fallback: str) -> str:
+    s = re.sub(r"[^\w.\-]+", "_", (title or "").strip(), flags=re.UNICODE).strip("._")
+    return s or fallback
 
 
 def _issues_as_dicts(
@@ -48,6 +65,35 @@ def _issues_as_dicts(
         }
         for issue in issues
     ]
+
+
+def _to_course_metadata(input_data: LearningObjectiveGenerationInput) -> CourseMetadata:
+    return CourseMetadata(
+        course_title=input_data.course_title,
+        course_description=input_data.course_description,
+        course_type=input_data.course_type,
+        course_duration=input_data.course_duration,
+        skill_level=input_data.skill_level,
+        target_audience=input_data.target_audience,
+        required_topics=input_data.required_topics,
+        source_analyses=[
+            {"source_name": path} for path in input_data.source_materials
+        ],
+    )
+
+
+def _to_regeneration_agent_input(
+    input_data: LearningObjectiveRegenerationInput,
+) -> LORegenerationInput:
+    return LORegenerationInput(
+        current_objectives=input_data.current_objectives,
+        regeneration_prompt=input_data.regeneration_prompt,
+        course_title=input_data.course_title,
+        course_type=input_data.course_type,
+        course_duration=input_data.course_duration,
+        skill_level=input_data.skill_level,
+        target_audience=input_data.target_audience,
+    )
 
 
 class LearningObjectiveOrchestrator:
@@ -78,11 +124,29 @@ class LearningObjectiveOrchestrator:
             kernel=self.kernel
         )
 
-    def execute(self, metadata: CourseMetadata) -> LOPipelineResult:
+    def generate_learning_objectives(
+        self,
+        input_data: LearningObjectiveGenerationInput,
+    ) -> LearningObjectiveGenerationResult:
+        metadata = _to_course_metadata(input_data)
+        run_id = f"lo-gen-{uuid.uuid4().hex[:8]}"
+        doc_name = _doc_name_from_title(metadata.course_title, "learning_objectives")
+        with traced_workflow(
+            "learning_objectives",
+            run_id=run_id,
+            doc_name=doc_name,
+            metadata={"course_title": metadata.course_title},
+            input_data={"course_title": metadata.course_title},
+        ):
+            return self._generate(metadata)
+
+    def _generate(
+        self,
+        metadata: CourseMetadata,
+    ) -> LearningObjectiveGenerationResult:
         logger.info(
-            "[learning_objective] Starting | title=%r | regen=%s",
+            "[learning_objective] Starting | title=%r",
             metadata.course_title,
-            bool(metadata.regeneration_prompt),
         )
 
         # Step 1: Generate objectives
@@ -95,7 +159,7 @@ class LearningObjectiveOrchestrator:
             logger.warning(
                 "[learning_objective] Generation returned empty objectives"
             )
-            return LOPipelineResult(
+            return LearningObjectiveGenerationResult(
                 objectives=[],
                 validation_passed=False,
                 repair_attempts=0,
@@ -110,7 +174,7 @@ class LearningObjectiveOrchestrator:
         )
 
         if validation.passed:
-            return LOPipelineResult(
+            return LearningObjectiveGenerationResult(
                 objectives=current_objectives,
                 validation_passed=True,
                 repair_attempts=0,
@@ -154,15 +218,39 @@ class LearningObjectiveOrchestrator:
             current_issues = validation.issues
 
             if validation.passed:
-                return LOPipelineResult(
+                return LearningObjectiveGenerationResult(
                     objectives=current_objectives,
                     validation_passed=True,
                     repair_attempts=attempt,
                 )
 
-        return LOPipelineResult(
+        return LearningObjectiveGenerationResult(
             objectives=current_objectives,
             validation_passed=False,
             repair_attempts=_MAX_REPAIR_ATTEMPTS,
             final_issues=_issues_as_dicts(current_issues),
         )
+
+    def regenerate_learning_objectives(
+        self,
+        input_data: LearningObjectiveRegenerationInput,
+    ) -> LearningObjectiveRegenerationResult:
+        """Revise existing objectives from user feedback — no validation or repair."""
+        agent_input = _to_regeneration_agent_input(input_data)
+        run_id = f"lo-regen-{uuid.uuid4().hex[:8]}"
+        doc_name = _doc_name_from_title(agent_input.course_title, "lo-regen")
+        with traced_workflow(
+            "learning_objectives_regenerate",
+            run_id=run_id,
+            doc_name=doc_name,
+            input_data={
+                "current_objectives_count": len(agent_input.current_objectives),
+            },
+        ):
+            logger.info(
+                "[learning_objective] Regenerating | objectives=%d | prompt_length=%d",
+                len(agent_input.current_objectives),
+                len(agent_input.regeneration_prompt.strip()),
+            )
+            result = LORegenerationAgent(kernel=self.kernel).run(agent_input)
+            return LearningObjectiveRegenerationResult(objectives=result.objectives)

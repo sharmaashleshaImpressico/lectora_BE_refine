@@ -7,7 +7,7 @@ import logging
 from sqlalchemy.orm import Session
 
 from app.models.onboarding.course_basic.course_basic import CourseBasic
-from app.repositories.course_repository import CourseRepository
+from app.repositories.course_basic.course_repository import CourseRepository
 from app.schemas.onboarding.course_basic.course import (
     CourseBasicCreate,
     CourseBasicInternal,
@@ -24,9 +24,15 @@ class CourseBasicService:
         self.db = db
         self.repository = CourseRepository(db)
 
-    def create_course(self, payload: CourseBasicCreate) -> CourseBasic:
-        """Persist a new course record; the database assigns `id` on insert."""
-        record = CourseBasicInternal(**payload.model_dump())
+    def create_course(self, payload: CourseBasicCreate, created_by: str) -> CourseBasic:
+        """Persist a new course record; the database assigns `id` on insert.
+
+        `created_by` is the authenticated user's name, used when the payload
+        does not carry an explicit creator.
+        """
+        data = payload.model_dump()
+        data["created_by"] = data.get("created_by") or created_by
+        record = CourseBasicInternal(**data)
         course = CourseBasic(
             title=record.course_title,
             course_code=record.course_code,

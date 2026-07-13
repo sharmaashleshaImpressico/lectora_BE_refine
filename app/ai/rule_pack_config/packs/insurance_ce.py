@@ -1,0 +1,164 @@
+"""
+Insurance CE — state-regulated continuing education rule pack.
+"""
+
+from __future__ import annotations
+
+
+PACK: dict = {
+    "id": "rp-insurance-ce-v3.4",
+    "family": "Insurance CE",
+    "version": "3.4",
+    "full_name": "Insurance Continuing Education",
+    "governed_by": "State Insurance Regulators",
+    "exam_file_format_samples": "DOCX",
+    "assessment_rules": {
+        "final_exam_min_questions": 75,
+        "answer_options_count": 4,
+        "allow_true_false": False,
+        "allow_all_of_the_above": False,
+        "forbidden_question_types": [
+            "true_false",
+            "all_of_the_above",
+            "none_of_the_above",
+            "roman_numeral_questions",
+        ],
+        # Exam feedback required: explain every choice (correct + incorrect)
+        "require_rationale": True,
+        "require_distractor_rationales": True,
+        # Question distribution: every section covered except intros and summaries
+        "objective_coverage_required": True,
+        # Cross-reference required: section number + page number (primary source if multiple)
+        "require_exam_cross_reference": True,
+    },
+    "compliance_elements": {
+        "regulatory_mode": "strict_real_regulators",
+        "require_non_advisory_language": False,
+        "forbidden_phrases": [],
+        
+        "disclosure_handling": {
+            "allow_generic_regulatory_reference": False,
+            "no_hallucinated_citations": True,
+        },
+    },
+
+    "course_assembly_rules": {
+        "require_intro_section": False,
+        "require_learning_objectives_section": True,
+        "learning_objectives_position": "before_first_chapter",
+        "require_expanded_summary_section": True,
+        "require_course_conclusion_section": True,
+    },
+     "content_rules": {
+        "require_source_fidelity": True,
+        "must_map_to_learning_objectives": True,
+        "no_duplicate_concepts_across_sections": True,
+        "no_unverified_statistics": True,
+        "no_opinion_based_statements": True,
+        "self_contained_subtopics": True,
+        "maintain_section_boundary_integrity": True,
+        "words_per_credit_hour": 9000,
+
+
+        "chapter_rules": {
+            "allow_subtopic_word_count_flexibility": True,
+            "do_not_force_equal_subtopic_lengths": True,
+            "word_count_tolerance_percent": 10,
+            "voice": "second_person_you_organization_we_clients_they",
+            "tone": "conversational_professional_beginner_friendly",
+            "avoid_complex_jargon": True,
+            "explain_terms_on_first_use": True,
+            "bold_first_key_term": True,
+            "require_scenario_based_examples": True,
+            "instructional_emphasis_labels": [
+                "Important",
+                "Pro Tip",
+                "Common Mistake",
+                "Warning",
+                "Best Practice",
+            ],
+            "audience_focus": "students",
+            "regulatory_mode": "strict_real_regulators",
+            "required_behaviors": [
+                "address learners with second-person 'you'",
+                "use 'we' only when appropriate for course/instructor voice",
+                "refer to clients and claimants as 'they'",
+                "write like a real mentor — practical, conversational, immersive; avoid stiff AI tone",
+                "include lightweight scenario-based explanations and practical examples where they improve understanding",
+                "bridge topics with smooth transition sentences for natural flow",
+                "use labeled instructional callouts when they add instructional value",
+                "ground teaching points in the provided source excerpt — paraphrase faithfully; do not invent unsupported facts",
+                "anchor regulatory references to the specific state regulator, statutes, and source materials provided for the course; do not invent unsupported citations",
+            ],
+        },
+    },
+    "kc_placement_rules": {
+        "placement": "every_3_to_5_screens_instructional_priority",
+        "min_kc_per_lesson": 2,
+        "max_kc_per_lesson": 8,
+        "min_answer_options": 2,
+        "max_answer_options": 4,
+        "cadence": {
+            "screens_min": 3,
+            "screens_max": 5,
+            "approximate_word_pages_min": 1,
+            "approximate_word_pages_max": 3,
+        },
+        "placement_priorities": [
+            "instructional_value",
+            "after_important_or_complex_concepts",
+            "end_of_section_or_subsection",
+            "after_scenarios",
+        ],
+        "interrupt_policy": {
+            "avoid_unnecessary_interruption": True,
+            "allow_interrupt_long_explanations_for_frequency": True,
+        },
+        "avoid_kc_on": [
+            "inflation_adjusted_figures",
+            "predictably_changing_items",
+        ],
+        "kc_triggers": [
+            "important_new_concepts",
+            "complex_or_difficult_explanations",
+            "section_or_subsection_completion",
+            "scenario_or_case_study_interactions",
+        ],
+        "embedded_kc_format": {
+            "typical_answer_option_count": 4,
+            "components": [
+                "stem",
+                "answer_options",
+                "correct_answer",
+                "explanation",
+            ],
+            "allow_scenario_or_case_study": True,
+            "prefer_scenario_or_case_study": True,
+        },
+        "forbidden_placements": [
+            "introduction",
+            "opening_section",
+            "summary_section",
+            "course_summary",
+            "mid_paragraph",
+            "inside_regulatory_block",
+        ],
+        "require_explanation": True,
+        "require_explanation_for_all_options": True,
+        "distractor_quality": "plausible",
+        "prefer_scenario_based_stems": True,
+    },
+    "deduplication_rules": {
+        "similarity_threshold": 0.82,
+        "apply_between": [
+            "KC_to_KC",
+            "KC_to_Exam",
+            "Exam_to_Exam",
+        ],
+    },
+    "error_tolerance": {
+        "word_count_tolerance_percent": 10,
+        "retry_on_failure": True,
+        "max_retries_per_step": 3,
+    },
+}

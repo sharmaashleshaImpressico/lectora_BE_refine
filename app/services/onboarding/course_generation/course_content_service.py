@@ -111,21 +111,58 @@ class CourseContentService:
                 job_id=job_id,
                 version_number=latest.version_number,
             )
+            self._ensure_learning_objectives(payload, job_id=job_id, artifacts=by_type)
             return _map_a2_output(job_id, payload, course_type=course_type)
 
         content_artifact = by_type.get(ARTIFACT_TYPE_COURSE_CONTENT)
         if content_artifact is not None:
             payload = self._read_json(content_artifact.blob_path)
+            self._ensure_learning_objectives(payload, job_id=job_id, artifacts=by_type)
             return _map_a2_output(job_id, payload, course_type=course_type)
 
         enriched_artifact = by_type.get(ARTIFACT_TYPE_ENRICHED_SECTIONS)
         if enriched_artifact is not None:
             payload = self._read_json(enriched_artifact.blob_path)
-            return _map_enriched_sections(job_id, payload, course_type=course_type)
+            return _map_enriched_sections(
+                job_id,
+                payload,
+                course_type=course_type,
+                learning_objectives=self._load_learning_objectives_fallback(
+                    job_id, artifacts=by_type
+                ),
+            )
 
         raise CourseContentNotFoundError(
             f"No generated course content found for job '{job_id}'."
         )
+
+    def _ensure_learning_objectives(
+        self,
+        payload: dict,
+        *,
+        job_id: int | str,
+        artifacts: dict | None,
+    ) -> None:
+        """Backfill root ``learning_objectives`` on the loaded payload when absent.
+
+        Editor-saved versions embed the objectives in their storage JSON, but
+        the pipeline-fresh payloads (Version 1 / flat ``course_content.json``,
+        both raw ``A2Output``) carry none — the course-level objectives for
+        those live in the job's stored ``pipeline_input.json`` (shared-state
+        artifact), with the course-run spec as a secondary source. Reusing that
+        stored data lets ``_map_a2_output`` surface the dedicated Learning
+        Objectives section without regenerating anything. Best-effort: failures
+        never block loading the course.
+        """
+        if not isinstance(payload, dict):
+            return
+        if self._extract_learning_objectives(payload):
+            return
+        learning_objectives = self._load_learning_objectives_fallback(
+            job_id, artifacts=artifacts
+        )
+        if learning_objectives:
+            payload["learning_objectives"] = learning_objectives
 
     def load_canonical_state(self, job_id: int | str) -> CanonicalCourseState:
         """Load raw A2 canonical state for editor-save (never from DOCX).
@@ -478,7 +515,6 @@ def _map_a2_output(job_id: str, payload: dict, *, course_type: str) -> dict:
             "sectionType": "overview" if is_overview else "content",
             "content": _paragraphs_to_text(paragraphs),
             "paragraphs": paragraphs,
-            "learningObjectives": [],
             "wordCount": word_count,
             "hasKnowledgeCheck": any(
                 (b.get("type") == "knowledge_check") for b in paragraphs
@@ -501,7 +537,6 @@ def _map_a2_output(job_id: str, payload: dict, *, course_type: str) -> dict:
                 "sectionType": "overview",
                 "content": description,
                 "paragraphs": [{"type": "text", "content": description}],
-                "learningObjectives": [],
                 "wordCount": len(description.split()),
                 "hasKnowledgeCheck": False,
                 "order": order,
@@ -533,7 +568,6 @@ def _map_a2_output(job_id: str, payload: dict, *, course_type: str) -> dict:
                 "paragraphs": [
                     {"type": "bullet_list", "items": list(learning_objectives)}
                 ],
-                "learningObjectives": list(learning_objectives),
                 "wordCount": sum(len(lo.split()) for lo in learning_objectives),
                 "hasKnowledgeCheck": False,
                 "order": order,
@@ -618,7 +652,6 @@ def _map_a2_output(job_id: str, payload: dict, *, course_type: str) -> dict:
                 "sectionType": "conclusion",
                 "content": conclusion,
                 "paragraphs": [{"type": "text", "content": conclusion}],
-                "learningObjectives": [],
                 "wordCount": len(conclusion.split()),
                 "hasKnowledgeCheck": False,
                 "order": order,
@@ -637,25 +670,61 @@ def _map_a2_output(job_id: str, payload: dict, *, course_type: str) -> dict:
         "meta": {
             "totalWordCount": total_words,
             "sectionCount": len(top_level),
-            "chapterCount": sum(1 for s in top_level if s["sectionType"] != "conclusion"),
+            "chapterCount": sum(
+                1
+                for s in top_level
+                if s["sectionType"] not in ("conclusion", "learning-objectives")
+            ),
             "estimatedReadTime": _estimated_read_time(total_words),
         },
         "sections": top_level,
     }
 
 
-def _map_enriched_sections(job_id: str, payload, *, course_type: str) -> dict:
+def _map_enriched_sections(
+    job_id: str,
+    payload,
+    *,
+    course_type: str,
+    learning_objectives: list[str] | None = None,
+) -> dict:
     """Fallback map from the thin section-mapper output (legacy jobs).
 
     `enriched_sections.json` is a list of lessons, each with `title`, `content`
     and a `subtopics` list. No paragraph blocks — we render the plain `content`
     strings so pre-fix jobs still show structure rather than a blank editor.
+    Course-level learning objectives (from the stored pipeline inputs) are
+    surfaced as the same dedicated section `_map_a2_output` emits.
     """
     lessons = payload if isinstance(payload, list) else payload.get("sections") or []
+    learning_objectives = [
+        str(item).strip() for item in (learning_objectives or []) if str(item).strip()
+    ]
 
     top_level: list[dict] = []
     total_words = 0
 
+    if learning_objectives:
+        top_level.append(
+            {
+                "id": f"{job_id}-learning-objectives",
+                "title": "Learning Objectives",
+                "level": 1,
+                "sectionType": "learning-objectives",
+                "content": "\n".join(f"- {lo}" for lo in learning_objectives),
+                "paragraphs": [
+                    {"type": "bullet_list", "items": list(learning_objectives)}
+                ],
+                "wordCount": sum(len(lo.split()) for lo in learning_objectives),
+                "hasKnowledgeCheck": False,
+                "order": 0,
+                "parentId": None,
+                "children": [],
+                "images": [],
+            }
+        )
+
+    lesson_order_offset = len(top_level)
     for l_idx, lesson in enumerate(lessons):
         if not isinstance(lesson, dict):
             continue
@@ -678,7 +747,6 @@ def _map_enriched_sections(job_id: str, payload, *, course_type: str) -> dict:
                     "paragraphs": (
                         [{"type": "text", "content": sub_content}] if sub_content else []
                     ),
-                    "learningObjectives": [],
                     "wordCount": len(sub_content.split()),
                     "hasKnowledgeCheck": bool(sub.get("interactive_elements")),
                     "order": s_idx,
@@ -695,10 +763,9 @@ def _map_enriched_sections(job_id: str, payload, *, course_type: str) -> dict:
                 "sectionType": "overview" if l_idx == 0 else "content",
                 "content": content,
                 "paragraphs": [{"type": "text", "content": content}] if content else [],
-                "learningObjectives": [],
                 "wordCount": word_count,
                 "hasKnowledgeCheck": bool(lesson.get("interactive_elements")),
-                "order": l_idx,
+                "order": l_idx + lesson_order_offset,
                 "parentId": None,
                 "children": children,
                 "images": [],
@@ -713,7 +780,7 @@ def _map_enriched_sections(job_id: str, payload, *, course_type: str) -> dict:
         "meta": {
             "totalWordCount": total_words,
             "sectionCount": len(top_level),
-            "chapterCount": len(top_level),
+            "chapterCount": len(top_level) - lesson_order_offset,
             "estimatedReadTime": _estimated_read_time(total_words),
         },
         "sections": top_level,
